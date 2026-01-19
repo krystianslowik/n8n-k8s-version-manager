@@ -50,8 +50,9 @@ async def list_snapshots():
             cwd="/workspace"
         )
 
+        # If infrastructure not ready, return empty list instead of error
         if result.returncode != 0:
-            raise HTTPException(status_code=500, detail=f"Failed to list snapshots: {result.stderr}")
+            return {"snapshots": []}
 
         snapshots = parse_snapshots_output(result.stdout)
         return {"snapshots": snapshots}
