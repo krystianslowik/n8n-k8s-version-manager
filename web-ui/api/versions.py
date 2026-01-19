@@ -1,6 +1,6 @@
 import subprocess
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -11,6 +11,7 @@ class DeployRequest(BaseModel):
     version: str
     mode: str  # "queue" or "regular"
     isolated_db: bool = False
+    name: Optional[str] = None  # Optional custom namespace name
 
 
 def parse_versions_output(output: str) -> List[Dict[str, Any]]:
@@ -123,6 +124,9 @@ async def deploy_version(request: DeployRequest):
 
         if request.isolated_db:
             cmd.append("--isolated-db")
+
+        if request.name:
+            cmd.extend(["--name", request.name])
 
         result = subprocess.run(cmd, capture_output=True, text=True, cwd="/workspace")
 
