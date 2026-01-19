@@ -1,6 +1,7 @@
 import { Header } from './components/Header'
 import { DeployVersionCard } from './components/DeployVersionCard'
 import { VersionsTable } from './components/VersionsTable'
+import { SnapshotsSection } from './components/SnapshotsSection'
 import { Toaster } from './components/ui/toaster'
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
             <VersionsTable />
           </div>
         </div>
+        <SnapshotsSection />
       </div>
       <Toaster />
     </div>
