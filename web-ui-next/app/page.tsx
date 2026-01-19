@@ -2,7 +2,9 @@
 
 import { Sidebar } from '@/components/sidebar'
 import { StatCard } from '@/components/stat-card'
+import { DeploymentsTable } from '@/components/deployments-table'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PlusIcon, PackageIcon, DatabaseIcon, HardDriveIcon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -63,10 +65,15 @@ export default function Home() {
           />
         </div>
 
-        {/* Placeholder for deployments table */}
-        <div className="border-2 border-dashed rounded-lg p-12 text-center text-muted-foreground">
-          Deployments table coming next...
-        </div>
+        {/* Deployments Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Active Deployments</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DeploymentsTable />
+          </CardContent>
+        </Card>
       </main>
     </div>
   )
