@@ -13,12 +13,40 @@ export function DeployVersionCard() {
   const [version, setVersion] = useState('')
   const [mode, setMode] = useState<'queue' | 'regular'>('queue')
   const [isolatedDb, setIsolatedDb] = useState(false)
+  const [name, setName] = useState('')
+  const [nameError, setNameError] = useState('')
 
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
+  const validateName = (value: string) => {
+    if (!value) {
+      setNameError('')
+      return true
+    }
+
+    // Kubernetes namespace validation
+    const valid = /^[a-z0-9-]+$/.test(value) &&
+                  value.length <= 63 &&
+                  /^[a-z0-9]/.test(value) &&
+                  /[a-z0-9]$/.test(value)
+
+    if (!valid) {
+      setNameError('Must be lowercase alphanumeric + hyphens, max 63 chars, start/end with alphanumeric')
+      return false
+    }
+
+    setNameError('')
+    return true
+  }
+
   const deployMutation = useMutation({
-    mutationFn: () => api.deployVersion({ version, mode, isolated_db: isolatedDb }),
+    mutationFn: () => api.deployVersion({
+      version,
+      mode,
+      isolated_db: isolatedDb,
+      name: name || undefined, // Only send if provided
+    }),
     onSuccess: (data) => {
       if (data.success) {
         toast({
@@ -53,6 +81,14 @@ export function DeployVersionCard() {
       })
       return
     }
+    if (name && !validateName(name)) {
+      toast({
+        variant: 'destructive',
+        title: 'Invalid name',
+        description: 'Please fix the custom name validation errors',
+      })
+      return
+    }
     deployMutation.mutate()
   }
 
@@ -71,6 +107,27 @@ export function DeployVersionCard() {
             onChange={(e) => setVersion(e.target.value)}
             disabled={deployMutation.isPending}
           />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="name">Custom Name (optional)</Label>
+          <Input
+            id="name"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value)
+              validateName(e.target.value)
+            }}
+            placeholder="Leave blank for auto-generated name"
+            className={nameError ? 'border-red-500' : ''}
+            disabled={deployMutation.isPending}
+          />
+          {nameError && (
+            <p className="text-sm text-red-500">{nameError}</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            If blank: auto-generates n8n-v{version ? version.replace(/\./g, '-') : '{version}'}. Custom names enable multiple deployments of same version.
+          </p>
         </div>
 
         <div>

@@ -30,6 +30,7 @@ export interface DeployRequest {
   version: string
   mode: 'queue' | 'regular'
   isolated_db: boolean
+  name?: string  // Optional custom namespace name
 }
 
 export interface ApiResponse<T = any> {
