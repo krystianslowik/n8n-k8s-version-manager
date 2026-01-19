@@ -18,41 +18,75 @@ def parse_versions_output(output: str) -> List[Dict[str, Any]]:
     versions = []
     lines = output.strip().split('\n')
 
+    current_deployment = {}
+    pod_list = []
+
     for line in lines:
-        # Skip header and separator lines
-        if 'NAMESPACE' in line or '---' in line or not line.strip():
+        line = line.strip()
+
+        # Skip header and empty lines
+        if not line or '===' in line:
             continue
 
-        # Parse format: n8n-v1-85-0  queue    Running  4/4   http://localhost:30185
-        parts = line.split()
-        if len(parts) >= 4:
-            namespace = parts[0]
-            mode = parts[1]
-            status = parts[2]
-            pods = parts[3]
-            url = parts[4] if len(parts) > 4 else ""
+        # Start of new deployment
+        if line.startswith('Namespace:'):
+            # Save previous deployment if exists
+            if current_deployment:
+                current_deployment['pods'] = {
+                    'ready': len([p for p in pod_list if 'Running' in p]),
+                    'total': len(pod_list)
+                }
+                versions.append(current_deployment)
+                current_deployment = {}
+                pod_list = []
 
+            # Parse namespace
+            namespace = line.split(':', 1)[1].strip()
             # Extract version from namespace (n8n-v1-85-0 -> 1.85.0)
             version_match = re.search(r'n8n-v(\d+)-(\d+)-(\d+)', namespace)
             if version_match:
                 version = f"{version_match.group(1)}.{version_match.group(2)}.{version_match.group(3)}"
+                current_deployment = {
+                    'version': version,
+                    'namespace': namespace,
+                    'mode': '',
+                    'status': '',
+                    'url': ''
+                }
 
-                # Parse pods (4/4 -> ready=4, total=4)
-                pod_parts = pods.split('/')
-                pods_ready = int(pod_parts[0]) if len(pod_parts) > 0 else 0
-                pods_total = int(pod_parts[1]) if len(pod_parts) > 1 else 0
+        # Parse version (redundant, but keep for consistency)
+        elif line.startswith('Version:') and current_deployment:
+            pass  # Already extracted from namespace
 
-                versions.append({
-                    "version": version,
-                    "namespace": namespace,
-                    "mode": mode.lower(),
-                    "status": status.lower(),
-                    "pods": {
-                        "ready": pods_ready,
-                        "total": pods_total
-                    },
-                    "url": url
-                })
+        # Parse mode
+        elif line.startswith('Mode:') and current_deployment:
+            mode = line.split(':', 1)[1].strip().lower()
+            current_deployment['mode'] = mode
+
+        # Parse access URL
+        elif line.startswith('Access:') and current_deployment:
+            url = line.split(':', 1)[1].strip()
+            current_deployment['url'] = url
+
+        # Parse pods section
+        elif line.startswith('Pods:'):
+            continue  # Just a header
+
+        # Parse individual pod lines
+        elif '-' in line and current_deployment and not line.startswith('Namespace'):
+            # Pod line format: "n8n-main-0 - Running"
+            pod_list.append(line)
+            # Set status based on pods - if any running, status is "running"
+            if 'Running' in line:
+                current_deployment['status'] = 'running'
+
+    # Don't forget the last deployment
+    if current_deployment:
+        current_deployment['pods'] = {
+            'ready': len([p for p in pod_list if 'Running' in p]),
+            'total': len(pod_list)
+        }
+        versions.append(current_deployment)
 
     return versions
 
