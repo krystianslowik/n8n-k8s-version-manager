@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/sidebar'
 import { StatCard } from '@/components/stat-card'
 import { DeploymentsTable } from '@/components/deployments-table'
 import { DeployDrawer } from '@/components/deploy-drawer'
+import { SnapshotsPanel } from '@/components/snapshots-panel'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PlusIcon, PackageIcon, DatabaseIcon, HardDriveIcon } from 'lucide-react'
@@ -77,6 +78,9 @@ export default function Home() {
             <DeploymentsTable />
           </CardContent>
         </Card>
+
+        {/* Snapshots Panel */}
+        <SnapshotsPanel />
       </main>
 
       <DeployDrawer open={deployDrawerOpen} onOpenChange={setDeployDrawerOpen} />
