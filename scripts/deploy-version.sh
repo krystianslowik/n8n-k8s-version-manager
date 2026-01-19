@@ -57,11 +57,29 @@ else
   PORT=$(python3 -c "v='$VERSION'.split('.'); print(30000 + int(v[0])*100 + int(v[1])*10 + int(v[2]))")
 fi
 
-# Validate namespace doesn't already exist
+# Validate namespace and Helm release
 if kubectl get namespace "$NAMESPACE" &> /dev/null; then
-  echo "ERROR: Namespace '$NAMESPACE' already exists"
-  echo "Use a different name or remove the existing deployment first."
-  exit 1
+  # Namespace exists - check if Helm release is successfully deployed
+  HELM_STATUS=$(helm list -n "$NAMESPACE" -o json 2>/dev/null | python3 -c "import json, sys; data=json.load(sys.stdin); print(data[0]['status'] if data else 'none')" 2>/dev/null || echo "none")
+
+  if [ "$HELM_STATUS" == "deployed" ]; then
+    echo "ERROR: Version already deployed in namespace '$NAMESPACE'"
+    echo "Access UI: http://localhost:$PORT"
+    echo "To redeploy, first remove the existing deployment:"
+    echo "  ./scripts/remove-version.sh ${VERSION}"
+    exit 1
+  elif [ "$HELM_STATUS" == "failed" ]; then
+    echo "Found failed deployment in namespace '$NAMESPACE'. Cleaning up..."
+    helm uninstall "$RELEASE_NAME" --namespace "$NAMESPACE" 2>/dev/null || true
+    kubectl delete namespace "$NAMESPACE" --wait=false
+    echo "Waiting for namespace deletion..."
+    kubectl wait --for=delete namespace/"$NAMESPACE" --timeout=60s 2>/dev/null || true
+    sleep 2
+  else
+    echo "ERROR: Namespace '$NAMESPACE' exists but has no Helm release"
+    echo "Please manually clean up: kubectl delete namespace $NAMESPACE"
+    exit 1
+  fi
 fi
 
 # Determine queue mode
