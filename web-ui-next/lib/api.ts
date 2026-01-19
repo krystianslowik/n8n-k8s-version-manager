@@ -5,6 +5,7 @@ import type {
   DeployRequest,
   AvailableVersionsResponse,
   ApiResponse,
+  ClusterResources,
 } from './types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -33,14 +34,14 @@ export const api = {
   },
 
   async deployVersion(request: DeployRequest): Promise<ApiResponse> {
-    return fetchApi('/api/versions/deploy', {
+    return fetchApi('/api/versions', {
       method: 'POST',
       body: JSON.stringify(request),
     })
   },
 
-  async deleteDeployment(version: string): Promise<ApiResponse> {
-    return fetchApi(`/api/versions/${version}`, {
+  async deleteDeployment(namespace: string): Promise<ApiResponse> {
+    return fetchApi(`/api/versions/${namespace}`, {
       method: 'DELETE',
     })
   },
@@ -73,5 +74,10 @@ export const api = {
   // Infrastructure
   async getInfrastructureStatus(): Promise<InfrastructureStatus> {
     return fetchApi('/api/infrastructure/status')
+  },
+
+  // Cluster resources
+  async getClusterResources(): Promise<ClusterResources> {
+    return fetchApi('/api/cluster/resources')
   },
 }

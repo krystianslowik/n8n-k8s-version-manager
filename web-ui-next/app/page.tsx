@@ -3,23 +3,24 @@
 import { useState } from 'react'
 import { Sidebar } from '@/components/sidebar'
 import { StatCard } from '@/components/stat-card'
+import { MemoryStatCard } from '@/components/memory-stat-card'
 import { DeploymentsTable } from '@/components/deployments-table'
 import { DeployDrawer } from '@/components/deploy-drawer'
 import { SnapshotsPanel } from '@/components/snapshots-panel'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { PlusIcon, PackageIcon, DatabaseIcon, HardDriveIcon } from 'lucide-react'
+import { PlusIcon, PackageIcon, DatabaseIcon, RefreshCwIcon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 
 export default function Home() {
   const [deployDrawerOpen, setDeployDrawerOpen] = useState(false)
-  const { data: deployments } = useQuery({
+  const { data: deployments, isLoading: isLoadingDeployments, isFetching, refetch } = useQuery({
     queryKey: ['deployments'],
     queryFn: api.getDeployments,
   })
 
-  const { data: snapshots } = useQuery({
+  const { data: snapshots, isLoading: isLoadingSnapshots } = useQuery({
     queryKey: ['snapshots'],
     queryFn: api.getSnapshots,
   })
@@ -27,7 +28,7 @@ export default function Home() {
   return (
     <div className="flex min-h-screen">
       <Sidebar />
-      <main className="flex-1 p-8 space-y-6">
+      <main className="flex-1 p-8 space-y-6 overflow-y-auto">
         {/* Hero Section */}
         <div className="flex items-center justify-between">
           <div>
@@ -43,36 +44,35 @@ export default function Home() {
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <StatCard
             label="Active Deployments"
             value={deployments?.length || 0}
-            trend="+1"
-            trendDirection="up"
             icon={<PackageIcon className="h-8 w-8" />}
+            loading={isLoadingDeployments}
           />
           <StatCard
             label="Snapshots"
             value={snapshots?.length || 0}
             icon={<DatabaseIcon className="h-8 w-8" />}
+            loading={isLoadingSnapshots}
           />
-          <StatCard
-            label="Disk Used"
-            value="2.4 GB"
-            icon={<HardDriveIcon className="h-8 w-8" />}
-          />
-          <StatCard
-            label="Uptime"
-            value="99.9%"
-            trend="+0.1%"
-            trendDirection="up"
-          />
+          <MemoryStatCard />
         </div>
 
         {/* Deployments Table */}
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle>Active Deployments</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isFetching}
+            >
+              <RefreshCwIcon className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
           </CardHeader>
           <CardContent>
             <DeploymentsTable />

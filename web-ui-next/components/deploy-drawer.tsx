@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { formatMemory, formatAge } from '@/lib/format'
 import {
   Drawer,
   DrawerContent,
@@ -23,18 +24,50 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import {
   RocketIcon,
-  SearchIcon,
   ChevronRightIcon,
   LayersIcon,
   ZapIcon,
   LoaderIcon,
+  ChevronsUpDownIcon,
+  CheckIcon,
+  ExternalLinkIcon,
+  AlertTriangleIcon,
+  TrashIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 
 interface DeployDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+}
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => clearTimeout(handler)
+  }, [value, delay])
+
+  return debouncedValue
 }
 
 export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
@@ -43,6 +76,10 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
   const [nameError, setNameError] = useState('')
   const [mode, setMode] = useState<'queue' | 'regular'>('queue')
   const [isolatedDb, setIsolatedDb] = useState(false)
+  const [versionPopoverOpen, setVersionPopoverOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const debouncedSearch = useDebounce(searchQuery, 300)
 
   const queryClient = useQueryClient()
 
@@ -51,6 +88,32 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
     queryFn: api.getAvailableVersions,
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
+
+  const { data: clusterResources } = useQuery({
+    queryKey: ['cluster-resources'],
+    queryFn: api.getClusterResources,
+    refetchInterval: 5000, // Poll every 5s while drawer open
+    enabled: open,
+  })
+
+  const QUEUE_MODE_MEMORY = 1792
+  const REGULAR_MODE_MEMORY = 512
+
+  const requiredMemory = mode === 'queue' ? QUEUE_MODE_MEMORY : REGULAR_MODE_MEMORY
+  const hasCapacity = mode === 'queue'
+    ? clusterResources?.can_deploy.queue_mode
+    : clusterResources?.can_deploy.regular_mode
+  const availableMemory = clusterResources?.memory?.available_mi || 0
+
+  const filteredVersions = useMemo(() => {
+    if (!availableVersions) return []
+    if (!debouncedSearch) return availableVersions
+    return availableVersions.filter((v) =>
+      v.toLowerCase().includes(debouncedSearch.toLowerCase())
+    )
+  }, [availableVersions, debouncedSearch])
+
+  const isSearching = searchQuery !== debouncedSearch
 
   const deployMutation = useMutation({
     mutationFn: api.deployVersion,
@@ -133,21 +196,95 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
         </DrawerHeader>
 
         <div className="p-6 space-y-6">
-          {/* GitHub Version Quick-Select */}
+          {/* Version Selection */}
+          <div className="space-y-2">
+            <Label>Version</Label>
+            <Popover open={versionPopoverOpen} onOpenChange={setVersionPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={versionPopoverOpen}
+                  className="w-full justify-between"
+                >
+                  {version || 'Select version...'}
+                  <ChevronsUpDownIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-full p-0" align="start">
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    placeholder="Search versions..."
+                    value={searchQuery}
+                    onValueChange={setSearchQuery}
+                  />
+                  <CommandList>
+                    {isLoadingVersions || isSearching ? (
+                      <div className="p-4 space-y-2">
+                        {Array(4)
+                          .fill(0)
+                          .map((_, i) => (
+                            <Skeleton key={i} className="h-8 w-full" />
+                          ))}
+                      </div>
+                    ) : filteredVersions.length === 0 ? (
+                      <CommandEmpty>No version found.</CommandEmpty>
+                    ) : (
+                      <CommandGroup>
+                        {filteredVersions.map((v) => (
+                          <CommandItem
+                            key={v}
+                            value={v}
+                            onSelect={(currentValue) => {
+                              setVersion(currentValue)
+                              setVersionPopoverOpen(false)
+                              setSearchQuery('')
+                            }}
+                          >
+                            <CheckIcon
+                              className={cn(
+                                'mr-2 h-4 w-4',
+                                version === v ? 'opacity-100' : 'opacity-0'
+                              )}
+                            />
+                            <span className="flex-1">{v}</span>
+                            <a
+                              href={`https://github.com/n8n-io/n8n/releases/tag/n8n@${v}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <ExternalLinkIcon className="h-3 w-3" />
+                            </a>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            <p className="text-xs text-muted-foreground">
+              Search or select from all available releases
+            </p>
+          </div>
+
+          {/* Quick Select Badges */}
           <div className="space-y-2">
             <Label className="text-sm text-muted-foreground">
-              Recent Versions
+              Quick Select
             </Label>
             <div className="flex gap-2 flex-wrap">
               {isLoadingVersions ? (
-                Array(6)
+                Array(5)
                   .fill(0)
-                  .map((_, i) => <Skeleton key={i} className="h-8 w-20" />)
+                  .map((_, i) => <Skeleton key={i} className="h-6 w-16" />)
               ) : (
-                availableVersions?.slice(0, 8).map((v) => (
+                availableVersions?.slice(0, 5).map((v) => (
                   <Badge
                     key={v}
-                    variant="outline"
+                    variant={version === v ? 'default' : 'outline'}
                     className="cursor-pointer hover:bg-primary hover:text-primary-foreground transition-all"
                     onClick={() => setVersion(v)}
                   >
@@ -156,24 +293,6 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
                 ))
               )}
             </div>
-          </div>
-
-          {/* Version Input */}
-          <div className="space-y-2">
-            <Label htmlFor="version">Version</Label>
-            <div className="relative">
-              <SearchIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="version"
-                placeholder="1.90.0"
-                value={version}
-                onChange={(e) => setVersion(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Or select from recent releases above
-            </p>
           </div>
 
           {/* Advanced Options (Collapsible) */}
@@ -244,10 +363,80 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
           </div>
         </div>
 
+        {/* Capacity Warning */}
+        {clusterResources && !hasCapacity && (
+          <div className="px-6 pb-4">
+            <div className="border-2 border-red-200 rounded-lg p-4 bg-red-50">
+              <div className="flex items-start gap-3">
+                <AlertTriangleIcon className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div>
+                    <p className="font-semibold text-red-900">
+                      Insufficient Memory
+                    </p>
+                    <p className="text-sm text-red-700 mt-1">
+                      This {mode} mode deployment needs {formatMemory(requiredMemory)}, but only {formatMemory(availableMemory)} is available.
+                    </p>
+                  </div>
+
+                  {clusterResources.deployments.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-red-900">
+                        Delete a deployment to free up memory:
+                      </p>
+                      <div className="space-y-1">
+                        {clusterResources.deployments.slice(0, 5).map((deployment) => (
+                          <div
+                            key={deployment.namespace}
+                            className="flex items-center justify-between text-sm bg-white rounded p-2 border border-red-100"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs text-gray-700">
+                                {deployment.namespace}
+                              </span>
+                              <Badge variant="outline" className="text-xs">
+                                {formatMemory(deployment.memory_mi)}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {formatAge(deployment.age_seconds)} old
+                              </span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-red-600 hover:text-red-700 hover:bg-red-100"
+                              onClick={() => {
+                                if (confirm(`Delete ${deployment.namespace}?`)) {
+                                  api.deleteDeployment(deployment.namespace).then(() => {
+                                    toast.success('Deployment deleted')
+                                    queryClient.invalidateQueries({ queryKey: ['deployments'] })
+                                    queryClient.invalidateQueries({ queryKey: ['cluster-resources'] })
+                                  }).catch((error) => {
+                                    toast.error('Failed to delete', {
+                                      description: error.message,
+                                    })
+                                  })
+                                }
+                              }}
+                            >
+                              <TrashIcon className="h-3 w-3 mr-1" />
+                              Delete
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <DrawerFooter>
           <Button
             onClick={handleDeploy}
-            disabled={deployMutation.isPending || !version}
+            disabled={deployMutation.isPending || !version || !hasCapacity}
             className="w-full"
           >
             {deployMutation.isPending ? (
