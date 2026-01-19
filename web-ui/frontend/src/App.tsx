@@ -1,5 +1,6 @@
 import { Header } from './components/Header'
 import { DeployVersionCard } from './components/DeployVersionCard'
+import { VersionsTable } from './components/VersionsTable'
 import { Toaster } from './components/ui/toaster'
 
 function App() {
@@ -12,7 +13,7 @@ function App() {
             <DeployVersionCard />
           </div>
           <div className="lg:col-span-2">
-            <p className="text-gray-600">Versions table will go here</p>
+            <VersionsTable />
           </div>
         </div>
       </div>
