@@ -1,0 +1,8 @@
+apiVersion: v2
+name: n8n-infrastructure
+description: Shared infrastructure for n8n version switching (PostgreSQL, Redis, Backups)
+type: application
+version: 0.1.0
+appVersion: "1.0"
+maintainers:
+  - name: n8n-team

@@ -1,0 +1,62 @@
+{{- if .Values.queueMode }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n-webhook
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "n8n-instance.labels" . | nindent 4 }}
+    component: webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "n8n-instance.selectorLabels" . | nindent 6 }}
+      component: webhook
+  template:
+    metadata:
+      labels:
+        {{- include "n8n-instance.selectorLabels" . | nindent 8 }}
+        component: webhook
+        app: n8n
+        version: {{ .Values.n8nVersion | quote }}
+        mode: "queue"
+    spec:
+      containers:
+      - name: n8n-webhook
+        image: docker.n8n.io/n8nio/n8n:{{ .Values.n8nVersion }}
+        command:
+        - n8n
+        - webhook
+        ports:
+        - containerPort: 5678
+          name: http
+        envFrom:
+        - configMapRef:
+            name: n8n-config
+        volumeMounts:
+        - name: n8n-data
+          mountPath: /home/node/.n8n
+        resources:
+          {{- toYaml .Values.resources.webhook | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: n8n-data
+        persistentVolumeClaim:
+          claimName: n8n-data
+{{- end }}

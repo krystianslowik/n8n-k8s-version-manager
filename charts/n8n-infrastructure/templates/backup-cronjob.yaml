@@ -1,0 +1,40 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup-cleanup
+  namespace: n8n-system
+  labels:
+    {{- include "n8n-infrastructure.labels" . | nindent 4 }}
+    app: backup
+spec:
+  schedule: "0 2 * * *"  # Run daily at 2 AM
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: backup
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: backup-cleanup
+            image: postgres:16
+            command:
+            - /bin/bash
+            - -c
+            - |
+              # Keep only the last N backups (retention policy)
+              cd /backups
+              ls -t n8n-*.sql 2>/dev/null | tail -n +{{ add .Values.backup.retention 1 }} | xargs -r rm -f
+              echo "Backup cleanup completed. Kept last {{ .Values.backup.retention }} backups."
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-storage
+{{- end }}

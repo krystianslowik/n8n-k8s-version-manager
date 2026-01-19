@@ -1,0 +1,8 @@
+apiVersion: v2
+name: n8n-instance
+description: n8n instance with configurable queue mode and version
+type: application
+version: 0.1.0
+appVersion: "1.0"
+maintainers:
+  - name: n8n-team

@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: n8n-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "n8n-instance.labels" . | nindent 4 }}
+data:
+  # Database configuration
+  DB_TYPE: "postgresdb"
+  DB_POSTGRESDB_HOST: {{ include "n8n-instance.dbHost" . | quote }}
+  DB_POSTGRESDB_PORT: {{ .Values.database.shared.port | quote }}
+  DB_POSTGRESDB_DATABASE: {{ include "n8n-instance.dbDatabase" . | quote }}
+  DB_POSTGRESDB_USER: {{ include "n8n-instance.dbUsername" . | quote }}
+  DB_POSTGRESDB_PASSWORD: {{ include "n8n-instance.dbPassword" . | quote }}
+
+  {{- if .Values.queueMode }}
+  # Queue mode configuration
+  EXECUTIONS_MODE: "queue"
+  QUEUE_BULL_REDIS_HOST: {{ .Values.redis.host | quote }}
+  QUEUE_BULL_REDIS_PORT: {{ .Values.redis.port | quote }}
+  QUEUE_HEALTH_CHECK_ACTIVE: "true"
+  {{- else }}
+  # Regular mode configuration
+  EXECUTIONS_MODE: "regular"
+  {{- end }}
+
+  # n8n configuration
+  N8N_ENCRYPTION_KEY: {{ .Values.n8nConfig.encryptionKey | quote }}
+  GENERIC_TIMEZONE: {{ .Values.n8nConfig.timezone | quote }}
+  TZ: {{ .Values.n8nConfig.timezone | quote }}
+
+  {{- if .Values.n8nConfig.webhookUrl }}
+  WEBHOOK_URL: {{ .Values.n8nConfig.webhookUrl | quote }}
+  {{- else }}
+  WEBHOOK_URL: {{ printf "http://localhost:%d" (include "n8n-instance.nodePort" . | int) | quote }}
+  {{- end }}
+
+  # Diagnostics
+  N8N_DIAGNOSTICS_ENABLED: "false"

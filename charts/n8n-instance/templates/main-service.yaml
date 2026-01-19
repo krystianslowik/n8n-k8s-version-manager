@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: n8n-main
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "n8n-instance.labels" . | nindent 4 }}
+    component: main
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: 5678
+      protocol: TCP
+      name: http
+      {{- if eq .Values.service.type "NodePort" }}
+      nodePort: {{ include "n8n-instance.nodePort" . }}
+      {{- end }}
+  selector:
+    {{- include "n8n-instance.selectorLabels" . | nindent 4 }}
+    component: main

@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: n8n-main
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "n8n-instance.labels" . | nindent 4 }}
+    component: main
+spec:
+  serviceName: n8n-main
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "n8n-instance.selectorLabels" . | nindent 6 }}
+      component: main
+  template:
+    metadata:
+      labels:
+        {{- include "n8n-instance.selectorLabels" . | nindent 8 }}
+        component: main
+        app: n8n
+        version: {{ .Values.n8nVersion | quote }}
+        mode: {{ ternary "queue" "regular" .Values.queueMode }}
+    spec:
+      containers:
+      - name: n8n
+        image: docker.n8n.io/n8nio/n8n:{{ .Values.n8nVersion }}
+        ports:
+        - containerPort: 5678
+          name: http
+        envFrom:
+        - configMapRef:
+            name: n8n-config
+        volumeMounts:
+        - name: n8n-data
+          mountPath: /home/node/.n8n
+        resources:
+          {{- toYaml .Values.resources.main | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 5678
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: n8n-data
+        persistentVolumeClaim:
+          claimName: n8n-data

@@ -1,0 +1,38 @@
+# PostgreSQL configuration
+postgres:
+  image: postgres:16
+  database: n8n
+  username: admin
+  password: changeme123  # Change in production
+  storage:
+    size: 10Gi
+    storageClass: ""  # Use default storage class
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+# Redis configuration
+redis:
+  image: redis:6-alpine
+  storage:
+    size: 2Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Backup configuration
+backup:
+  enabled: true
+  retention: 10  # Keep last 10 snapshots
+  storage:
+    size: 20Gi
+    storageClass: ""
