@@ -84,6 +84,135 @@ else
   echo "Using SHARED database"
 fi
 
+# Check cluster capacity before deploying
+echo ""
+echo "Checking cluster capacity..."
+
+# Memory requirements (in Mi)
+QUEUE_MODE_MEMORY=1792  # main(512) + webhook(256) + 2*worker(512)
+REGULAR_MODE_MEMORY=512  # main only
+ISOLATED_DB_MEMORY=512   # postgres when using isolated DB
+
+# Calculate required memory for this deployment
+if [ "$QUEUE_MODE" == "true" ]; then
+  REQUIRED_MEMORY=$QUEUE_MODE_MEMORY
+else
+  REQUIRED_MEMORY=$REGULAR_MODE_MEMORY
+fi
+
+# Add isolated DB memory if needed
+if [ "$ISOLATED" == "true" ]; then
+  REQUIRED_MEMORY=$((REQUIRED_MEMORY + ISOLATED_DB_MEMORY))
+fi
+
+# Get cluster allocatable memory (in Mi)
+ALLOCATABLE=$(kubectl get nodes -o json 2>/dev/null | \
+  python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    mem = data['items'][0]['status']['allocatable']['memory']
+    # Convert Ki to Mi
+    print(int(mem.rstrip('Ki')) // 1024)
+except:
+    print('0')
+" 2>/dev/null || echo "0")
+
+# Get current memory requests across all pods (in Mi)
+CURRENT_USAGE=$(kubectl get pods --all-namespaces -o json 2>/dev/null | \
+  python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    total = 0
+    for pod in data['items']:
+        if pod['status']['phase'] in ['Running', 'Pending']:
+            for container in pod['spec']['containers']:
+                mem_req = container.get('resources', {}).get('requests', {}).get('memory', '0')
+                if mem_req.endswith('Mi'):
+                    total += int(mem_req[:-2])
+                elif mem_req.endswith('Gi'):
+                    total += int(mem_req[:-2]) * 1024
+    print(total)
+except:
+    print('0')
+" 2>/dev/null || echo "0")
+
+# Calculate available memory
+AVAILABLE=$((ALLOCATABLE - CURRENT_USAGE))
+
+# Check if we have enough capacity
+if [ "$ALLOCATABLE" -eq 0 ]; then
+  echo "⚠️  Warning: Could not determine cluster capacity (kubectl or python3 not available)"
+  echo "Proceeding without capacity check..."
+  echo ""
+elif [ $AVAILABLE -lt $REQUIRED_MEMORY ]; then
+  echo "❌ ERROR: Insufficient cluster memory"
+  echo ""
+  echo "Required:  ${REQUIRED_MEMORY}Mi ($([ "$QUEUE_MODE" == "true" ] && echo "queue" || echo "regular") mode$([ "$ISOLATED" == "true" ] && echo " + isolated DB" || echo ""))"
+  echo "Available: ${AVAILABLE}Mi"
+  echo "Total:     ${ALLOCATABLE}Mi"
+  echo "Usage:     ${CURRENT_USAGE}Mi ($((CURRENT_USAGE * 100 / ALLOCATABLE))%)"
+  echo ""
+  echo "Active n8n deployments:"
+
+  # List n8n deployments with their memory usage
+  for ns in $(kubectl get ns -o name 2>/dev/null | grep "namespace/n8n-v" | cut -d/ -f2); do
+    ns_memory=$(kubectl get pods -n "$ns" -o json 2>/dev/null | \
+      python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    total = 0
+    for pod in data['items']:
+        if pod['status']['phase'] in ['Running', 'Pending']:
+            for container in pod['spec']['containers']:
+                mem_req = container.get('resources', {}).get('requests', {}).get('memory', '0')
+                if mem_req.endswith('Mi'):
+                    total += int(mem_req[:-2])
+                elif mem_req.endswith('Gi'):
+                    total += int(mem_req[:-2]) * 1024
+    print(total)
+except:
+    print('0')
+" 2>/dev/null || echo "0")
+
+    # Get namespace age
+    ns_age=$(kubectl get namespace "$ns" -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null | \
+      python3 -c "
+from datetime import datetime
+import sys
+try:
+    created = datetime.fromisoformat(sys.stdin.read().strip().replace('Z', '+00:00'))
+    now = datetime.now(created.tzinfo)
+    diff = now - created
+    hours = int(diff.total_seconds() // 3600)
+    mins = int((diff.total_seconds() % 3600) // 60)
+    if hours > 24:
+        days = hours // 24
+        hours = hours % 24
+        print(f'{days}d {hours}h')
+    elif hours > 0:
+        print(f'{hours}h {mins}m')
+    else:
+        print(f'{mins}m')
+except:
+    print('unknown')
+" 2>/dev/null || echo "unknown")
+
+    echo "  • $ns (${ns_memory}Mi, age: $ns_age)"
+  done
+
+  echo ""
+  echo "To free up memory, delete old deployments:"
+  echo "  ./scripts/remove-version.sh <version>"
+  echo ""
+  exit 1
+else
+  echo "✓ Sufficient capacity: ${AVAILABLE}Mi available, ${REQUIRED_MEMORY}Mi required"
+fi
+echo ""
+
 # Deploy using Helm
 echo "Installing Helm release ${RELEASE_NAME} in namespace ${NAMESPACE}..."
 helm install "$RELEASE_NAME" ./charts/n8n-instance \
