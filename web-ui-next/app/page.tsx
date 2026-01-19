@@ -1,8 +1,10 @@
 'use client'
 
+import { useState } from 'react'
 import { Sidebar } from '@/components/sidebar'
 import { StatCard } from '@/components/stat-card'
 import { DeploymentsTable } from '@/components/deployments-table'
+import { DeployDrawer } from '@/components/deploy-drawer'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PlusIcon, PackageIcon, DatabaseIcon, HardDriveIcon } from 'lucide-react'
@@ -10,6 +12,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 
 export default function Home() {
+  const [deployDrawerOpen, setDeployDrawerOpen] = useState(false)
   const { data: deployments } = useQuery({
     queryKey: ['deployments'],
     queryFn: api.getDeployments,
@@ -32,7 +35,7 @@ export default function Home() {
               {deployments?.length || 0} active deployments
             </p>
           </div>
-          <Button size="lg">
+          <Button size="lg" onClick={() => setDeployDrawerOpen(true)}>
             <PlusIcon className="h-4 w-4 mr-2" />
             Deploy New Version
           </Button>
@@ -75,6 +78,8 @@ export default function Home() {
           </CardContent>
         </Card>
       </main>
+
+      <DeployDrawer open={deployDrawerOpen} onOpenChange={setDeployDrawerOpen} />
     </div>
   )
 }
