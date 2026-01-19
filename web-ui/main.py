@@ -17,5 +17,9 @@ async def health_check():
     return {"status":"ok"}
 
 from api.versions import router as versions_router
+from api.snapshots import router as snapshots_router
+from api.infrastructure import router as infrastructure_router
 
 app.include_router(versions_router)
+app.include_router(snapshots_router)
+app.include_router(infrastructure_router)
