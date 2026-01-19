@@ -121,6 +121,36 @@ Namespace: n8n-v2-1
 ./scripts/restore-snapshot.sh n8n-20260119-120000-pre-v1.123.sql
 ```
 
+## Web UI
+
+### Quick Start
+
+```bash
+cd web-ui
+docker-compose up -d
+```
+
+Access the web UI at http://localhost:8080
+
+### Features
+
+- **Deploy versions**: Enter version number, select mode, click Deploy
+- **View active versions**: Real-time status updates every 5 seconds
+- **Remove versions**: Click Delete with confirmation dialog
+- **Manage snapshots**: Expand snapshots section, restore with confirmation
+- **Infrastructure status**: Monitor Postgres and Redis health in header
+
+### Development Mode
+
+See [web-ui/README.md](web-ui/README.md) for development setup.
+
+### Stopping the UI
+
+```bash
+cd web-ui
+docker-compose down
+```
+
 ## Architecture
 
 ### Infrastructure (n8n-system namespace)
