@@ -52,8 +52,9 @@ else
   NAMESPACE="n8n-v${VERSION//./-}"
   RELEASE_NAME="n8n-v${VERSION//./-}"
 
-  # Calculate port from version
-  PORT=$(python3 -c "v='$VERSION'.split('.'); print(30000 + int(v[0])*100 + int(v[1]))")
+  # Calculate port from version (include patch to avoid conflicts)
+  # Formula: 30000 + major*100 + minor*10 + patch
+  PORT=$(python3 -c "v='$VERSION'.split('.'); print(30000 + int(v[0])*100 + int(v[1])*10 + int(v[2]))")
 fi
 
 # Validate namespace doesn't already exist

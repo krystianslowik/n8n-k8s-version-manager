@@ -37,6 +37,9 @@ def parse_versions_output(output: str) -> List[Dict[str, Any]]:
                     'ready': len([p for p in pod_list if 'Running' in p]),
                     'total': len(pod_list)
                 }
+                # Set status if not already set
+                if not current_deployment.get('status'):
+                    current_deployment['status'] = 'pending' if pod_list else 'unknown'
                 versions.append(current_deployment)
                 current_deployment = {}
                 pod_list = []
@@ -45,10 +48,12 @@ def parse_versions_output(output: str) -> List[Dict[str, Any]]:
             namespace = line.split(':', 1)[1].strip()
             # Extract version from namespace (n8n-v1-85-0 -> 1.85.0)
             version_match = re.search(r'n8n-v(\d+)-(\d+)-(\d+)', namespace)
+            custom_name = None
             if version_match:
                 version = f"{version_match.group(1)}.{version_match.group(2)}.{version_match.group(3)}"
             else:
                 # For custom names, fetch version from namespace label
+                custom_name = namespace  # The namespace IS the custom name
                 try:
                     result = subprocess.run(
                         ["kubectl", "get", "namespace", namespace, "-o", "jsonpath={.metadata.labels.version}"],
@@ -59,12 +64,26 @@ def parse_versions_output(output: str) -> List[Dict[str, Any]]:
                 except:
                     version = "unknown"
 
+            # Get namespace creation timestamp for age calculation
+            created_at = None
+            try:
+                result = subprocess.run(
+                    ["kubectl", "get", "namespace", namespace, "-o", "jsonpath={.metadata.creationTimestamp}"],
+                    capture_output=True,
+                    text=True
+                )
+                created_at = result.stdout.strip() or None
+            except:
+                pass
+
             current_deployment = {
                 'version': version,
                 'namespace': namespace,
+                'name': custom_name,
                 'mode': '',
                 'status': '',
-                'url': ''
+                'url': '',
+                'created_at': created_at
             }
 
         # Parse version (redundant, but keep for consistency)
@@ -99,6 +118,9 @@ def parse_versions_output(output: str) -> List[Dict[str, Any]]:
             'ready': len([p for p in pod_list if 'Running' in p]),
             'total': len(pod_list)
         }
+        # Set status if not already set
+        if not current_deployment.get('status'):
+            current_deployment['status'] = 'pending' if pod_list else 'unknown'
         versions.append(current_deployment)
 
     return versions
@@ -143,17 +165,29 @@ async def deploy_version(request: DeployRequest):
         result = subprocess.run(cmd, capture_output=True, text=True, cwd="/workspace")
 
         if result.returncode != 0:
+            # Combine stdout and stderr for complete error message
+            error_msg = result.stderr.strip() if result.stderr.strip() else result.stdout.strip()
+            if not error_msg:
+                error_msg = "Deployment failed with no error message"
+
             return {
                 "success": False,
                 "message": "Deployment failed",
-                "error": result.stderr,
+                "error": error_msg,
                 "output": result.stdout
             }
 
         # Calculate namespace and URL from version
-        namespace = f"n8n-v{request.version.replace('.', '-')}"
+        if request.name:
+            namespace = request.name
+        else:
+            namespace = f"n8n-v{request.version.replace('.', '-')}"
+
         version_parts = request.version.split('.')
-        port = 30000 + (int(version_parts[0]) * 100) + int(version_parts[1])
+        # Include patch version in port calculation to avoid conflicts
+        # Formula: 30000 + major*100 + minor*10 + patch
+        # This gives unique ports for patch versions while staying within NodePort range
+        port = 30000 + (int(version_parts[0]) * 100) + (int(version_parts[1]) * 10) + int(version_parts[2])
         url = f"http://localhost:{port}"
 
         return {
@@ -168,15 +202,35 @@ async def deploy_version(request: DeployRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/{version}")
-async def remove_version(version: str):
-    """Remove a deployed n8n version."""
+@router.delete("/{namespace}")
+async def remove_version(namespace: str):
+    """Remove a deployed n8n version by namespace."""
     try:
-        result = subprocess.run(
-            ["/workspace/scripts/remove-version.sh", version],
+        # Check if namespace exists
+        check_result = subprocess.run(
+            ["kubectl", "get", "namespace", namespace],
             capture_output=True,
-            text=True,
-            cwd="/workspace"
+            text=True
+        )
+        if check_result.returncode != 0:
+            return {
+                "success": False,
+                "message": "Namespace not found",
+                "error": f"Namespace {namespace} does not exist"
+            }
+
+        # Uninstall Helm release (use namespace as release name)
+        subprocess.run(
+            ["helm", "uninstall", namespace, "--namespace", namespace],
+            capture_output=True,
+            text=True
+        )
+
+        # Delete namespace
+        result = subprocess.run(
+            ["kubectl", "delete", "namespace", namespace],
+            capture_output=True,
+            text=True
         )
 
         if result.returncode != 0:
@@ -189,7 +243,7 @@ async def remove_version(version: str):
 
         return {
             "success": True,
-            "message": f"Version {version} removed",
+            "message": f"Namespace {namespace} removed",
             "output": result.stdout
         }
 

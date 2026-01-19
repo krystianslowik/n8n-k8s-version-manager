@@ -366,10 +366,10 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
         {/* Capacity Warning */}
         {clusterResources && !hasCapacity && (
           <div className="px-6 pb-4">
-            <div className="border-2 border-red-200 rounded-lg p-4 bg-red-50">
+            <div className="border-2 border-red-200 rounded-lg p-4 bg-red-50 max-h-96 overflow-y-auto">
               <div className="flex items-start gap-3">
                 <AlertTriangleIcon className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
-                <div className="flex-1 space-y-2">
+                <div className="flex-1 space-y-2 min-w-0">
                   <div>
                     <p className="font-semibold text-red-900">
                       Insufficient Memory
@@ -384,7 +384,7 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
                       <p className="text-sm font-medium text-red-900">
                         Delete a deployment to free up memory:
                       </p>
-                      <div className="space-y-1">
+                      <div className="space-y-1 max-h-48 overflow-y-auto pr-2">
                         {clusterResources.deployments.slice(0, 5).map((deployment) => (
                           <div
                             key={deployment.namespace}
