@@ -49,6 +49,12 @@ export const api = {
     })
   },
 
+  createSnapshot: async (): Promise<ApiResponse> => {
+    return fetchJson(`${API_BASE}/snapshots/create`, {
+      method: 'POST',
+    })
+  },
+
   // Infrastructure
   getInfrastructureStatus: async (): Promise<Infrastructure> => {
     return fetchJson(`${API_BASE}/infrastructure/status`)

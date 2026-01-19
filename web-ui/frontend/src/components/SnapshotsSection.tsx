@@ -60,16 +60,53 @@ export function SnapshotsSection() {
     },
   })
 
+  const createMutation = useMutation({
+    mutationFn: () => api.createSnapshot(),
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({
+          title: 'Snapshot creation started',
+          description: 'Snapshot will appear in list when complete',
+        })
+        // Refetch to show new snapshot when it appears
+        queryClient.invalidateQueries({ queryKey: ['snapshots'] })
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Failed to create snapshot',
+          description: data.error,
+        })
+      }
+    },
+    onError: (error) => {
+      toast({
+        variant: 'destructive',
+        title: 'Failed to create snapshot',
+        description: error.message,
+      })
+    },
+  })
+
   const snapshotCount = data?.snapshots.length || 0
 
   return (
     <>
-      <Accordion type="single" collapsible className="mt-8">
-        <AccordionItem value="snapshots">
-          <AccordionTrigger>
-            Database Snapshots ({snapshotCount})
-          </AccordionTrigger>
-          <AccordionContent>
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Database Snapshots</h3>
+          <Button
+            onClick={() => createMutation.mutate()}
+            disabled={createMutation.isPending}
+          >
+            {createMutation.isPending ? 'Creating...' : '📸 Create Snapshot Now'}
+          </Button>
+        </div>
+        <Accordion type="single" collapsible>
+          <AccordionItem value="snapshots">
+            <AccordionTrigger>
+              View Snapshots ({snapshotCount})
+            </AccordionTrigger>
+            <AccordionContent>
             {snapshotCount === 0 ? (
               <p className="text-gray-500 text-sm">No snapshots available</p>
             ) : (
@@ -98,6 +135,7 @@ export function SnapshotsSection() {
           </AccordionContent>
         </AccordionItem>
       </Accordion>
+      </div>
 
       <AlertDialog open={!!restoreSnapshot} onOpenChange={() => setRestoreSnapshot(null)}>
         <AlertDialogContent>
