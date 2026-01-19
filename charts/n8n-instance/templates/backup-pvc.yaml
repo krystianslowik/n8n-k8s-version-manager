@@ -1,3 +1,4 @@
+{{- if not .Values.isolatedDB }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -16,3 +17,4 @@ spec:
   resources:
     requests:
       storage: 10Gi
+{{- end }}
