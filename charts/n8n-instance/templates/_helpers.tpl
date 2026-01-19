@@ -71,36 +71,36 @@ Converts version like "1.123" to port 30123
 Database host
 */}}
 {{- define "n8n-instance.dbHost" -}}
-{{- if .Values.isolatedDB }}
+{{- if .Values.isolatedDB -}}
 postgres-{{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local
-{{- else }}
-{{- .Values.database.shared.host }}
-{{- end }}
-{{- end }}
+{{- else -}}
+{{- .Values.database.shared.host -}}
+{{- end -}}
+{{- end -}}
 
 {{/*
 Database credentials
 */}}
 {{- define "n8n-instance.dbUsername" -}}
-{{- if .Values.isolatedDB }}
+{{- if .Values.isolatedDB -}}
 admin
-{{- else }}
-{{- .Values.database.shared.username }}
-{{- end }}
-{{- end }}
+{{- else -}}
+{{- .Values.database.shared.username -}}
+{{- end -}}
+{{- end -}}
 
 {{- define "n8n-instance.dbPassword" -}}
-{{- if .Values.isolatedDB }}
+{{- if .Values.isolatedDB -}}
 changeme123
-{{- else }}
-{{- .Values.database.shared.password }}
-{{- end }}
-{{- end }}
+{{- else -}}
+{{- .Values.database.shared.password -}}
+{{- end -}}
+{{- end -}}
 
 {{- define "n8n-instance.dbDatabase" -}}
-{{- if .Values.isolatedDB }}
+{{- if .Values.isolatedDB -}}
 n8n
-{{- else }}
-{{- .Values.database.shared.database }}
-{{- end }}
-{{- end }}
+{{- else -}}
+{{- .Values.database.shared.database -}}
+{{- end -}}
+{{- end -}}
