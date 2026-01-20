@@ -16,7 +16,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Collapsible,
@@ -78,7 +77,6 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
   const [customName, setCustomName] = useState('')
   const [nameError, setNameError] = useState('')
   const [mode, setMode] = useState<'queue' | 'regular'>('queue')
-  const [isolatedDb, setIsolatedDb] = useState(false)
   const [snapshot, setSnapshot] = useState('')
   const [versionPopoverOpen, setVersionPopoverOpen] = useState(false)
   const [snapshotPopoverOpen, setSnapshotPopoverOpen] = useState(false)
@@ -106,7 +104,7 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
   const { data: namedSnapshots, isLoading: isLoadingSnapshots } = useQuery({
     queryKey: ['named-snapshots'],
     queryFn: api.getNamedSnapshots,
-    enabled: open && isolatedDb,
+    enabled: open,
   })
 
   const QUEUE_MODE_MEMORY = 1792
@@ -265,7 +263,6 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
     deployMutation.mutate({
       version,
       mode,
-      isolated_db: isolatedDb,
       name: customName || undefined,
       snapshot: snapshot || undefined,
       helm_values: hasHelmValues ? helmValues : undefined,
@@ -437,22 +434,9 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
             </p>
           </div>
 
-          {/* Isolated DB Checkbox */}
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="isolatedDb"
-              checked={isolatedDb}
-              onCheckedChange={(checked) => setIsolatedDb(checked as boolean)}
-            />
-            <Label htmlFor="isolatedDb" className="cursor-pointer">
-              Use isolated database (experimental)
-            </Label>
-          </div>
-
-          {/* Snapshot Selection (only when isolated DB enabled) */}
-          {isolatedDb && (
-            <div className="space-y-2">
-              <Label>Snapshot (optional)</Label>
+          {/* Initial Data Selection */}
+          <div className="space-y-2">
+            <Label>Initial Data</Label>
               <Popover open={snapshotPopoverOpen} onOpenChange={setSnapshotPopoverOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -520,11 +504,10 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
                   </Command>
                 </PopoverContent>
               </Popover>
-              <p className="text-xs text-muted-foreground">
-                Restore from a named snapshot when creating the isolated database
-              </p>
-            </div>
-          )}
+            <p className="text-xs text-muted-foreground">
+              Select a snapshot to initialize the database with existing data
+            </p>
+          </div>
 
           {/* Configuration Section */}
           <Collapsible open={configOpen} onOpenChange={setConfigOpen}>
@@ -537,7 +520,6 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
                 value={helmValues}
                 onChange={setHelmValues}
                 isQueueMode={mode === 'queue'}
-                isIsolatedDb={isolatedDb}
               />
             </CollapsibleContent>
           </Collapsible>
