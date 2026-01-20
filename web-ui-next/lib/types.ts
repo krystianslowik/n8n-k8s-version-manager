@@ -11,7 +11,28 @@ export interface Deployment {
 
 export interface Snapshot {
   filename: string
-  timestamp: string
+  name?: string
+  type: 'named' | 'auto'
+  timestamp?: string
+  created?: string
+  size?: string
+  source?: string
+}
+
+export interface SnapshotListResponse {
+  snapshots: Snapshot[]
+}
+
+export interface CreateNamedSnapshotRequest {
+  name: string
+  source?: string
+}
+
+export interface SnapshotActionResponse {
+  success: boolean
+  message?: string
+  error?: string
+  output?: string
 }
 
 export interface InfrastructureStatus {

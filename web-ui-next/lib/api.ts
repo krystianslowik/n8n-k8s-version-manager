@@ -6,6 +6,9 @@ import type {
   AvailableVersionsResponse,
   ApiResponse,
   ClusterResources,
+  SnapshotListResponse,
+  CreateNamedSnapshotRequest,
+  SnapshotActionResponse,
 } from './types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -48,7 +51,12 @@ export const api = {
 
   // Snapshots
   async getSnapshots(): Promise<Snapshot[]> {
-    const response = await fetchApi<{ snapshots: Snapshot[] }>('/api/snapshots')
+    const response = await fetchApi<SnapshotListResponse>('/api/snapshots')
+    return response.snapshots
+  },
+
+  async getNamedSnapshots(): Promise<Snapshot[]> {
+    const response = await fetchApi<SnapshotListResponse>('/api/snapshots/named')
     return response.snapshots
   },
 
@@ -62,6 +70,19 @@ export const api = {
     return fetchApi('/api/snapshots/restore', {
       method: 'POST',
       body: JSON.stringify({ snapshot: filename }),
+    })
+  },
+
+  async createNamedSnapshot(request: CreateNamedSnapshotRequest): Promise<SnapshotActionResponse> {
+    return fetchApi('/api/snapshots/create-named', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    })
+  },
+
+  async deleteSnapshot(filename: string): Promise<SnapshotActionResponse> {
+    return fetchApi(`/api/snapshots/${filename}`, {
+      method: 'DELETE',
     })
   },
 
