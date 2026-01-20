@@ -11,16 +11,17 @@ if [ -z "$FILENAME" ]; then
   exit 1
 fi
 
-# Determine snapshot path (check both directories)
-if [[ "$FILENAME" == *.sql ]]; then
-  SNAPSHOT_PATH="/backups/snapshots/$FILENAME"
-  if [ ! -f "/backups/$FILENAME" ]; then
-    # Try timestamped directory
-    SNAPSHOT_PATH="/backups/$FILENAME"
-  fi
-else
+# Validate filename
+if [[ ! "$FILENAME" == *.sql ]]; then
   echo "ERROR: Filename must end with .sql"
   exit 1
+fi
+
+# Determine if it's a named or timestamped snapshot
+if [[ "$FILENAME" == n8n-*.sql ]]; then
+  SNAPSHOT_PATH="/backups/$FILENAME"
+else
+  SNAPSHOT_PATH="/backups/snapshots/$FILENAME"
 fi
 
 echo "Deleting snapshot: $FILENAME"
@@ -31,22 +32,18 @@ if [ "$CONFIRM" != "yes" ]; then
   exit 0
 fi
 
-# Get postgres pod to exec into
-POSTGRES_POD=$(kubectl get pods -n n8n-system -l app=postgres -o jsonpath='{.items[0].metadata.name}')
+# Use temporary pod to delete the snapshot
+kubectl delete pod tmp-delete --ignore-not-found=true -n n8n-system >/dev/null 2>&1
+DELETE_RESULT=$(kubectl run tmp-delete --rm -i --restart=Never --image=busybox -n n8n-system \
+  --overrides="{\"spec\":{\"containers\":[{\"name\":\"tmp-delete\",\"image\":\"busybox\",\"command\":[\"sh\",\"-c\",\"if [ -f '$SNAPSHOT_PATH' ]; then rm -f '$SNAPSHOT_PATH' '${SNAPSHOT_PATH}.meta' 2>/dev/null; echo 'deleted'; else echo 'not-found'; fi\"],\"volumeMounts\":[{\"name\":\"backup\",\"mountPath\":\"/backups\"}]}],\"volumes\":[{\"name\":\"backup\",\"persistentVolumeClaim\":{\"claimName\":\"backup-storage\"}}]}}" \
+  2>&1 | grep -v "^pod.*deleted" | tr -d '\n')
 
-if [ -z "$POSTGRES_POD" ]; then
-  echo "Error: PostgreSQL pod not found"
+if [ "$DELETE_RESULT" == "deleted" ]; then
+  echo "Snapshot deleted: $FILENAME"
+elif [ "$DELETE_RESULT" == "not-found" ]; then
+  echo "ERROR: Snapshot not found: $SNAPSHOT_PATH"
+  exit 1
+else
+  echo "ERROR: Unexpected result: $DELETE_RESULT"
   exit 1
 fi
-
-# Delete snapshot and metadata
-kubectl exec "$POSTGRES_POD" -n n8n-system -- sh -c "
-  if [ -f '$SNAPSHOT_PATH' ]; then
-    rm -f '$SNAPSHOT_PATH'
-    rm -f '${SNAPSHOT_PATH}.meta'
-    echo 'Snapshot deleted: $FILENAME'
-  else
-    echo 'ERROR: Snapshot not found: $SNAPSHOT_PATH'
-    exit 1
-  fi
-"
