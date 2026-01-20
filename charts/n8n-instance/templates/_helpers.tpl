@@ -70,39 +70,23 @@ Formula: 30000 + major*100 + minor*10 + patch
 {{- end }}
 
 {{/*
-Database host
+Database host - always isolated
 */}}
 {{- define "n8n-instance.dbHost" -}}
-{{- if .Values.isolatedDB -}}
 postgres-{{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local
-{{- else -}}
-{{- .Values.database.shared.host -}}
-{{- end -}}
 {{- end -}}
 
 {{/*
-Database credentials
+Database credentials - always use isolated defaults
 */}}
 {{- define "n8n-instance.dbUsername" -}}
-{{- if .Values.isolatedDB -}}
 admin
-{{- else -}}
-{{- .Values.database.shared.username -}}
-{{- end -}}
 {{- end -}}
 
 {{- define "n8n-instance.dbPassword" -}}
-{{- if .Values.isolatedDB -}}
 changeme123
-{{- else -}}
-{{- .Values.database.shared.password -}}
-{{- end -}}
 {{- end -}}
 
 {{- define "n8n-instance.dbDatabase" -}}
-{{- if .Values.isolatedDB -}}
 n8n
-{{- else -}}
-{{- .Values.database.shared.database -}}
-{{- end -}}
 {{- end -}}
