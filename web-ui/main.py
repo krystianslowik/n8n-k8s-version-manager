@@ -3,12 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="n8n Version Manager API")
 
-# CORS middleware for development
+# CORS middleware - allow Next.js frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",  # Vite dev server (old UI)
-        "http://localhost:3000",  # Next.js dev server (new UI)
+        "http://localhost:3000",  # Next.js frontend container
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -30,10 +29,3 @@ app.include_router(snapshots_router)
 app.include_router(infrastructure_router)
 app.include_router(available_versions_router)
 app.include_router(cluster_router)
-
-from fastapi.staticfiles import StaticFiles
-import os
-
-# Serve static files (must be last)
-if os.path.exists("static"):
-    app.mount("/", StaticFiles(directory="static", html=True), name="static")

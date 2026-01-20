@@ -13,12 +13,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code (API only, no static files)
 COPY main.py .
 COPY api/ ./api/
-
-# Copy pre-built Next.js static files
-COPY static/ ./static/
 
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh
