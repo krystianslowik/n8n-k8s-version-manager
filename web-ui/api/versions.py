@@ -12,6 +12,7 @@ class DeployRequest(BaseModel):
     mode: str  # "queue" or "regular"
     isolated_db: bool = False
     name: Optional[str] = None  # Optional custom namespace name
+    snapshot: Optional[str] = None  # Optional snapshot name for isolated DB
 
 
 def parse_versions_output(output: str) -> List[Dict[str, Any]]:
@@ -76,6 +77,28 @@ def parse_versions_output(output: str) -> List[Dict[str, Any]]:
             except:
                 pass
 
+            # Get isolated_db and snapshot from Helm values
+            isolated_db = False
+            snapshot = None
+            try:
+                result = subprocess.run(
+                    ["helm", "get", "values", namespace, "-n", namespace, "-o", "json"],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    import json
+                    helm_values = json.loads(result.stdout)
+                    isolated_db = helm_values.get('isolatedDB', False)
+                    if isolated_db and 'database' in helm_values and 'isolated' in helm_values['database']:
+                        snapshot_config = helm_values['database']['isolated'].get('snapshot', {})
+                        if snapshot_config.get('enabled'):
+                            snapshot_name = snapshot_config.get('name', '')
+                            # Remove .sql extension if present
+                            snapshot = snapshot_name.replace('.sql', '') if snapshot_name else None
+            except:
+                pass
+
             current_deployment = {
                 'version': version,
                 'namespace': namespace,
@@ -83,6 +106,8 @@ def parse_versions_output(output: str) -> List[Dict[str, Any]]:
                 'mode': '',
                 'status': '',
                 'url': '',
+                'isolated_db': isolated_db,
+                'snapshot': snapshot,
                 'created_at': created_at
             }
 
@@ -150,7 +175,7 @@ async def list_versions():
 
 
 @router.post("")
-async def deploy_version(request: DeployRequest, snapshot: Optional[str] = None):
+async def deploy_version(request: DeployRequest):
     """Deploy a new n8n version."""
     try:
         mode_flag = "--queue" if request.mode == "queue" else "--regular"
@@ -162,8 +187,8 @@ async def deploy_version(request: DeployRequest, snapshot: Optional[str] = None)
         if request.name:
             cmd.extend(["--name", request.name])
 
-        if snapshot:
-            cmd.extend(["--snapshot", snapshot])
+        if request.snapshot:
+            cmd.extend(["--snapshot", request.snapshot])
 
         result = subprocess.run(cmd, capture_output=True, text=True, cwd="/workspace")
 

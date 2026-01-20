@@ -103,6 +103,7 @@ export function DeploymentsTable() {
             <TableHead>Status</TableHead>
             <TableHead>Age</TableHead>
             <TableHead>Mode</TableHead>
+            <TableHead>Database</TableHead>
             <TableHead>URL</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -130,6 +131,9 @@ export function DeploymentsTable() {
                     <Skeleton className="h-5 w-16" />
                   </TableCell>
                   <TableCell>
+                    <Skeleton className="h-5 w-20" />
+                  </TableCell>
+                  <TableCell>
                     <Skeleton className="h-5 w-48" />
                   </TableCell>
                   <TableCell className="text-right">
@@ -140,7 +144,7 @@ export function DeploymentsTable() {
           ) : deployments?.length === 0 ? (
             // Empty state - will enhance in next task
             <TableRow>
-              <TableCell colSpan={7} className="h-64 text-center">
+              <TableCell colSpan={8} className="h-64 text-center">
                 <p className="text-muted-foreground">No deployments found</p>
                 <Button className="mt-4">Deploy First Version</Button>
               </TableCell>
@@ -194,6 +198,18 @@ export function DeploymentsTable() {
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline">{d.mode}</Badge>
+                </TableCell>
+                <TableCell>
+                  <div>
+                    <Badge variant="secondary">
+                      {d.isolated_db ? 'Isolated' : 'Shared'}
+                    </Badge>
+                    {d.snapshot && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {d.snapshot}
+                      </p>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell>
                   {d.url ? (

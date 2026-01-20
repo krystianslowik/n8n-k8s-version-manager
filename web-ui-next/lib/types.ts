@@ -6,6 +6,7 @@ export interface Deployment {
   mode: 'queue' | 'regular' | ''
   url?: string  // Optional - may not exist for new deployments
   isolated_db: boolean
+  snapshot?: string  // Snapshot name if deployed with one
   created_at?: string
 }
 
