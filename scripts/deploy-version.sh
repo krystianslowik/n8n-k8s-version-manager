@@ -59,25 +59,21 @@ fi
 if [ -n "$SNAPSHOT_NAME" ]; then
   echo "Verifying snapshot exists: ${SNAPSHOT_NAME}.sql"
 
-  POSTGRES_POD=$(kubectl get pods -n n8n-system -l app=postgres -o jsonpath='{.items[0].metadata.name}')
+  # Use temporary pod to check if snapshot file exists
+  kubectl delete pod tmp-verify --ignore-not-found=true -n n8n-system >/dev/null 2>&1
+  SNAPSHOT_EXISTS=$(kubectl run tmp-verify --rm -i --restart=Never --image=busybox -n n8n-system \
+    --overrides="{\"spec\":{\"containers\":[{\"name\":\"tmp-verify\",\"image\":\"busybox\",\"command\":[\"sh\",\"-c\",\"[ -f '/backups/snapshots/${SNAPSHOT_NAME}.sql' ] && echo 'true' || echo 'false'\"],\"volumeMounts\":[{\"name\":\"backup\",\"mountPath\":\"/backups\"}]}],\"volumes\":[{\"name\":\"backup\",\"persistentVolumeClaim\":{\"claimName\":\"backup-storage\"}}]}}" \
+    2>&1 | grep -v "^pod.*deleted" | tr -d '\n')
 
-  if [ -z "$POSTGRES_POD" ]; then
-    echo "Warning: Cannot verify snapshot (PostgreSQL pod not found)"
-  else
-    SNAPSHOT_EXISTS=$(kubectl exec "$POSTGRES_POD" -n n8n-system -- sh -c "
-      [ -f '/backups/snapshots/${SNAPSHOT_NAME}.sql' ] && echo 'true' || echo 'false'
-    ")
-
-    if [ "$SNAPSHOT_EXISTS" != "true" ]; then
-      echo "ERROR: Snapshot not found: ${SNAPSHOT_NAME}.sql"
-      echo ""
-      echo "Available named snapshots:"
-      ./scripts/list-snapshots.sh --named-only
-      exit 1
-    fi
-
-    echo "✓ Snapshot verified: ${SNAPSHOT_NAME}.sql"
+  if [ "$SNAPSHOT_EXISTS" != "true" ]; then
+    echo "ERROR: Snapshot not found: ${SNAPSHOT_NAME}.sql"
+    echo ""
+    echo "Available named snapshots:"
+    ./scripts/list-snapshots.sh --named-only
+    exit 1
   fi
+
+  echo "✓ Snapshot verified: ${SNAPSHOT_NAME}.sql"
 fi
 echo ""
 
