@@ -2,14 +2,13 @@
 
 set -e
 
-# Usage: ./scripts/deploy-version.sh <version> [--queue|--regular] [--isolated-db] [--snapshot <name>] [--name <custom-name>] [--values-file <path>]
+# Usage: ./scripts/deploy-version.sh <version> [--queue|--regular] [--snapshot <name>] [--name <custom-name>] [--values-file <path>]
 
 VERSION=$1
 shift
 
 # Parse flags
 MODE="--queue"
-ISOLATED_DB=""
 CUSTOM_NAME=""
 SNAPSHOT_NAME=""
 VALUES_FILE=""
@@ -18,10 +17,6 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --queue|--regular)
       MODE=$1
-      shift
-      ;;
-    --isolated-db)
-      ISOLATED_DB=$1
       shift
       ;;
     --name)
@@ -44,19 +39,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$VERSION" ]; then
-  echo "Usage: ./scripts/deploy-version.sh <version> [--queue|--regular] [--isolated-db] [--snapshot <name>] [--name <custom-name>]"
+  echo "Usage: ./scripts/deploy-version.sh <version> [--queue|--regular] [--snapshot <name>] [--name <custom-name>]"
   echo ""
   echo "Examples:"
   echo "  ./scripts/deploy-version.sh 1.123 --queue"
   echo "  ./scripts/deploy-version.sh 1.123 --regular --name acme-prod"
-  echo "  ./scripts/deploy-version.sh 1.123 --regular --isolated-db --snapshot prod-baseline"
-  exit 1
-fi
-
-# Validate: --snapshot requires --isolated-db
-if [ -n "$SNAPSHOT_NAME" ] && [ "$ISOLATED_DB" != "--isolated-db" ]; then
-  echo "ERROR: --snapshot flag requires --isolated-db"
-  echo "Usage: ./scripts/deploy-version.sh <version> --regular --isolated-db --snapshot <name>"
+  echo "  ./scripts/deploy-version.sh 1.123 --regular --snapshot prod-baseline"
   exit 1
 fi
 
@@ -140,15 +128,6 @@ else
   exit 1
 fi
 
-# Determine isolated DB
-if [ "$ISOLATED_DB" == "--isolated-db" ]; then
-  ISOLATED="true"
-  echo "Using ISOLATED database"
-else
-  ISOLATED="false"
-  echo "Using SHARED database"
-fi
-
 # Check cluster capacity before deploying
 echo ""
 echo "Checking cluster capacity..."
@@ -156,18 +135,13 @@ echo "Checking cluster capacity..."
 # Memory requirements (in Mi)
 QUEUE_MODE_MEMORY=1792  # main(512) + webhook(256) + 2*worker(512)
 REGULAR_MODE_MEMORY=512  # main only
-ISOLATED_DB_MEMORY=512   # postgres when using isolated DB
+DB_MEMORY=512            # postgres
 
-# Calculate required memory for this deployment
+# Calculate required memory for this deployment (includes DB)
 if [ "$QUEUE_MODE" == "true" ]; then
-  REQUIRED_MEMORY=$QUEUE_MODE_MEMORY
+  REQUIRED_MEMORY=$((QUEUE_MODE_MEMORY + DB_MEMORY))
 else
-  REQUIRED_MEMORY=$REGULAR_MODE_MEMORY
-fi
-
-# Add isolated DB memory if needed
-if [ "$ISOLATED" == "true" ]; then
-  REQUIRED_MEMORY=$((REQUIRED_MEMORY + ISOLATED_DB_MEMORY))
+  REQUIRED_MEMORY=$((REGULAR_MODE_MEMORY + DB_MEMORY))
 fi
 
 # Get cluster allocatable memory (in Mi)
@@ -214,7 +188,7 @@ if [ "$ALLOCATABLE" -eq 0 ]; then
 elif [ $AVAILABLE -lt $REQUIRED_MEMORY ]; then
   echo "❌ ERROR: Insufficient cluster memory"
   echo ""
-  echo "Required:  ${REQUIRED_MEMORY}Mi ($([ "$QUEUE_MODE" == "true" ] && echo "queue" || echo "regular") mode$([ "$ISOLATED" == "true" ] && echo " + isolated DB" || echo ""))"
+  echo "Required:  ${REQUIRED_MEMORY}Mi ($([ "$QUEUE_MODE" == "true" ] && echo "queue" || echo "regular") mode + isolated DB)"
   echo "Available: ${AVAILABLE}Mi"
   echo "Total:     ${ALLOCATABLE}Mi"
   echo "Usage:     ${CURRENT_USAGE}Mi ($((CURRENT_USAGE * 100 / ALLOCATABLE))%)"
@@ -285,7 +259,6 @@ echo "Installing Helm release ${RELEASE_NAME} in namespace ${NAMESPACE}..."
 HELM_CMD="helm install \"$RELEASE_NAME\" ./charts/n8n-instance \
   --set n8nVersion=\"$VERSION\" \
   --set queueMode=\"$QUEUE_MODE\" \
-  --set isolatedDB=\"$ISOLATED\" \
   --namespace \"$NAMESPACE\" \
   --create-namespace"
 
@@ -309,7 +282,7 @@ echo "Deployment initiated!"
 echo "Namespace: $NAMESPACE"
 echo "Version: $VERSION"
 echo "Mode: $([ "$QUEUE_MODE" == "true" ] && echo "Queue" || echo "Regular")"
-echo "Database: $([ "$ISOLATED" == "true" ] && echo "Isolated" || echo "Shared")"
+echo "Database: Isolated"
 if [ -n "$SNAPSHOT_NAME" ]; then
   echo "Snapshot: ${SNAPSHOT_NAME}.sql"
 fi
