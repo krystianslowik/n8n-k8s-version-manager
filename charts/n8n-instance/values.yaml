@@ -4,35 +4,23 @@ n8nVersion: "latest"
 # Deployment mode
 queueMode: true  # true = queue mode, false = regular mode
 
-# Database configuration
-isolatedDB: false  # true = dedicated DB, false = shared DB
-
+# Database configuration (always isolated)
 database:
-  # Used when isolatedDB=false (shared database)
-  shared:
-    host: postgres.n8n-system.svc.cluster.local
-    port: 5432
-    database: n8n
-    username: admin
-    password: changeme123  # Should match infrastructure chart
-
-  # Used when isolatedDB=true (isolated database)
-  isolated:
-    image: postgres:16
-    storage:
-      size: 10Gi
-    resources:
-      requests:
-        cpu: 250m
-        memory: 512Mi
-      limits:
-        cpu: 1000m
-        memory: 2Gi
-    # Snapshot restore configuration
-    snapshot:
-      enabled: false          # Set to true to restore from snapshot
-      name: ""                # Snapshot filename (e.g., "test-data-v1.sql")
-      sourceNamespace: "n8n-system"  # Where backup-storage PVC is mounted
+  image: postgres:16
+  storage:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  # Snapshot restore configuration
+  snapshot:
+    enabled: false          # Set to true to restore from snapshot
+    name: ""                # Snapshot filename (e.g., "test-data-v1.sql")
+    sourceNamespace: "n8n-system"  # Where backup-storage PVC is mounted
 
 # Redis configuration (only used in queue mode)
 redis:
