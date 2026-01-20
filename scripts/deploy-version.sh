@@ -2,7 +2,7 @@
 
 set -e
 
-# Usage: ./scripts/deploy-version.sh <version> [--queue|--regular] [--isolated-db] [--name <custom-name>]
+# Usage: ./scripts/deploy-version.sh <version> [--queue|--regular] [--isolated-db] [--snapshot <name>] [--name <custom-name>]
 
 VERSION=$1
 shift
@@ -11,6 +11,7 @@ shift
 MODE="--queue"
 ISOLATED_DB=""
 CUSTOM_NAME=""
+SNAPSHOT_NAME=""
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -26,6 +27,10 @@ while [[ $# -gt 0 ]]; do
       CUSTOM_NAME="$2"
       shift 2
       ;;
+    --snapshot)
+      SNAPSHOT_NAME="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown option: $1"
       exit 1
@@ -34,11 +39,47 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$VERSION" ]; then
-  echo "Usage: ./scripts/deploy-version.sh <version> [--queue|--regular] [--isolated-db] [--name <custom-name>]"
-  echo "Example: ./scripts/deploy-version.sh 1.123 --queue"
-  echo "Example with custom name: ./scripts/deploy-version.sh 1.123 --regular --name acme-prod"
+  echo "Usage: ./scripts/deploy-version.sh <version> [--queue|--regular] [--isolated-db] [--snapshot <name>] [--name <custom-name>]"
+  echo ""
+  echo "Examples:"
+  echo "  ./scripts/deploy-version.sh 1.123 --queue"
+  echo "  ./scripts/deploy-version.sh 1.123 --regular --name acme-prod"
+  echo "  ./scripts/deploy-version.sh 1.123 --regular --isolated-db --snapshot prod-baseline"
   exit 1
 fi
+
+# Validate: --snapshot requires --isolated-db
+if [ -n "$SNAPSHOT_NAME" ] && [ "$ISOLATED_DB" != "--isolated-db" ]; then
+  echo "ERROR: --snapshot flag requires --isolated-db"
+  echo "Usage: ./scripts/deploy-version.sh <version> --regular --isolated-db --snapshot <name>"
+  exit 1
+fi
+
+# Verify snapshot exists (if provided)
+if [ -n "$SNAPSHOT_NAME" ]; then
+  echo "Verifying snapshot exists: ${SNAPSHOT_NAME}.sql"
+
+  POSTGRES_POD=$(kubectl get pods -n n8n-system -l app=postgres -o jsonpath='{.items[0].metadata.name}')
+
+  if [ -z "$POSTGRES_POD" ]; then
+    echo "Warning: Cannot verify snapshot (PostgreSQL pod not found)"
+  else
+    SNAPSHOT_EXISTS=$(kubectl exec "$POSTGRES_POD" -n n8n-system -- sh -c "
+      [ -f '/backups/snapshots/${SNAPSHOT_NAME}.sql' ] && echo 'true' || echo 'false'
+    ")
+
+    if [ "$SNAPSHOT_EXISTS" != "true" ]; then
+      echo "ERROR: Snapshot not found: ${SNAPSHOT_NAME}.sql"
+      echo ""
+      echo "Available named snapshots:"
+      ./scripts/list-snapshots.sh --named-only
+      exit 1
+    fi
+
+    echo "✓ Snapshot verified: ${SNAPSHOT_NAME}.sql"
+  fi
+fi
+echo ""
 
 # Generate namespace and port
 if [ -n "$CUSTOM_NAME" ]; then
@@ -234,12 +275,24 @@ echo ""
 
 # Deploy using Helm
 echo "Installing Helm release ${RELEASE_NAME} in namespace ${NAMESPACE}..."
-helm install "$RELEASE_NAME" ./charts/n8n-instance \
-  --set n8nVersion="$VERSION" \
-  --set queueMode="$QUEUE_MODE" \
-  --set isolatedDB="$ISOLATED" \
-  --namespace "$NAMESPACE" \
-  --create-namespace
+
+# Build Helm command
+HELM_CMD="helm install \"$RELEASE_NAME\" ./charts/n8n-instance \
+  --set n8nVersion=\"$VERSION\" \
+  --set queueMode=\"$QUEUE_MODE\" \
+  --set isolatedDB=\"$ISOLATED\" \
+  --namespace \"$NAMESPACE\" \
+  --create-namespace"
+
+# Add snapshot parameters if provided
+if [ -n "$SNAPSHOT_NAME" ]; then
+  HELM_CMD="$HELM_CMD \
+    --set database.isolated.snapshot.enabled=true \
+    --set database.isolated.snapshot.name=\"${SNAPSHOT_NAME}.sql\""
+fi
+
+# Execute Helm install
+eval "$HELM_CMD"
 
 echo ""
 echo "Deployment initiated!"
@@ -247,6 +300,9 @@ echo "Namespace: $NAMESPACE"
 echo "Version: $VERSION"
 echo "Mode: $([ "$QUEUE_MODE" == "true" ] && echo "Queue" || echo "Regular")"
 echo "Database: $([ "$ISOLATED" == "true" ] && echo "Isolated" || echo "Shared")"
+if [ -n "$SNAPSHOT_NAME" ]; then
+  echo "Snapshot: ${SNAPSHOT_NAME}.sql"
+fi
 echo ""
 echo "Check status: kubectl get pods -n $NAMESPACE"
 echo "View logs: kubectl logs -f n8n-main-0 -n $NAMESPACE"
