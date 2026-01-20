@@ -1,44 +1,17 @@
 services:
-  backend:
+  # Combined backend + frontend (Next.js static files served by FastAPI)
+  app:
     build:
       context: ./web-ui
       dockerfile: Dockerfile
-    container_name: n8n-api
-    ports:
-      - "8000:8080"
-    volumes:
-      - ~/.kube/config:/root/.kube/config:ro
-      - ./:/workspace:ro
-    environment:
-      - PYTHONUNBUFFERED=1
-    networks:
-      - n8n-network
-
-  frontend:
-    build:
-      context: ./web-ui-next
-      dockerfile: Dockerfile
-    container_name: n8n-ui-next
-    ports:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
-    depends_on:
-      - backend
-    networks:
-      - n8n-network
-
-  # Keep old UI for comparison (optional)
-  frontend-old:
-    build:
-      context: ./web-ui
-      dockerfile: Dockerfile
-    container_name: n8n-ui-old
+    container_name: n8n-ui
     ports:
       - "8080:8080"
     volumes:
       - ~/.kube/config:/root/.kube/config:ro
       - ./:/workspace:ro
+    environment:
+      - PYTHONUNBUFFERED=1
     networks:
       - n8n-network
 
