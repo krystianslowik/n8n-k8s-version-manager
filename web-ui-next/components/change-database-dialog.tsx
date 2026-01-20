@@ -55,6 +55,7 @@ export function ChangeDatabaseDialog({
   const [isolatedDb, setIsolatedDb] = useState(deployment?.isolated_db ?? false)
   const [snapshot, setSnapshot] = useState(deployment?.snapshot ?? '')
   const [snapshotPopoverOpen, setSnapshotPopoverOpen] = useState(false)
+  const [redeployProgress, setRedeployProgress] = useState<string>('')
   const queryClient = useQueryClient()
 
   // Sync state when deployment changes
@@ -76,17 +77,25 @@ export function ChangeDatabaseDialog({
       if (!deployment) return
 
       // First delete the existing deployment
+      setRedeployProgress('Deleting existing deployment...')
       await api.deleteDeployment(deployment.namespace)
 
       // Poll until namespace is fully deleted (max 2 minutes)
       const MAX_POLLS = 60 // 60 polls * 2 seconds = 2 minutes
       let polls = 0
 
+      setRedeployProgress('Waiting for cleanup to complete...')
       while (polls < MAX_POLLS) {
         const status = await api.checkNamespaceStatus(deployment.namespace)
         if (!status.exists) {
           // Namespace fully deleted, proceed with redeploy
           break
+        }
+
+        // Update progress every 10 seconds
+        if (polls > 0 && polls % 5 === 0) {
+          const elapsed = polls * 2
+          setRedeployProgress(`Still cleaning up... (${elapsed}s elapsed)`)
         }
 
         // Wait 2 seconds before next poll
@@ -99,6 +108,7 @@ export function ChangeDatabaseDialog({
       }
 
       // Redeploy with new config
+      setRedeployProgress('Starting redeployment...')
       return api.deployVersion({
         version: deployment.version,
         mode: deployment.mode === 'queue' ? 'queue' : 'regular',
@@ -108,6 +118,7 @@ export function ChangeDatabaseDialog({
       })
     },
     onSuccess: (data) => {
+      setRedeployProgress('')
       if (data?.success) {
         toast.success('Redeployment started', {
           description: `${deployment?.name || deployment?.namespace} is being redeployed with new database configuration`,
@@ -121,6 +132,7 @@ export function ChangeDatabaseDialog({
       }
     },
     onError: (error: Error) => {
+      setRedeployProgress('')
       toast.error('Redeployment failed', {
         description: error.message,
       })
@@ -302,7 +314,7 @@ export function ChangeDatabaseDialog({
             {redeployMutation.isPending ? (
               <>
                 <LoaderIcon className="h-4 w-4 mr-2 animate-spin" />
-                Redeploying...
+                {redeployProgress || 'Redeploying...'}
               </>
             ) : (
               <>
