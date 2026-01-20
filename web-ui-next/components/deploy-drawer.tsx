@@ -46,7 +46,6 @@ import {
   CheckIcon,
   ExternalLinkIcon,
   AlertTriangleIcon,
-  TrashIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -382,49 +381,29 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
                   {clusterResources.deployments.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-sm font-medium text-red-900">
-                        Delete a deployment to free up memory:
+                        Active deployments using memory:
                       </p>
                       <div className="space-y-1 max-h-48 overflow-y-auto pr-2">
                         {clusterResources.deployments.slice(0, 5).map((deployment) => (
                           <div
                             key={deployment.namespace}
-                            className="flex items-center justify-between text-sm bg-white rounded p-2 border border-red-100"
+                            className="flex items-center gap-2 text-sm bg-white rounded p-2 border border-red-100"
                           >
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs text-gray-700">
-                                {deployment.namespace}
-                              </span>
-                              <Badge variant="outline" className="text-xs">
-                                {formatMemory(deployment.memory_mi)}
-                              </Badge>
-                              <span className="text-xs text-muted-foreground">
-                                {formatAge(deployment.age_seconds)} old
-                              </span>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 text-red-600 hover:text-red-700 hover:bg-red-100"
-                              onClick={() => {
-                                if (confirm(`Delete ${deployment.namespace}?`)) {
-                                  api.deleteDeployment(deployment.namespace).then(() => {
-                                    toast.success('Deployment deleted')
-                                    queryClient.invalidateQueries({ queryKey: ['deployments'] })
-                                    queryClient.invalidateQueries({ queryKey: ['cluster-resources'] })
-                                  }).catch((error) => {
-                                    toast.error('Failed to delete', {
-                                      description: error.message,
-                                    })
-                                  })
-                                }
-                              }}
-                            >
-                              <TrashIcon className="h-3 w-3 mr-1" />
-                              Delete
-                            </Button>
+                            <span className="font-mono text-xs text-gray-700">
+                              {deployment.namespace}
+                            </span>
+                            <Badge variant="outline" className="text-xs">
+                              {formatMemory(deployment.memory_mi)}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {formatAge(deployment.age_seconds)} old
+                            </span>
                           </div>
                         ))}
                       </div>
+                      <p className="text-xs text-red-700 mt-2">
+                        Go to the dashboard to delete deployments and free up memory.
+                      </p>
                     </div>
                   )}
                 </div>
