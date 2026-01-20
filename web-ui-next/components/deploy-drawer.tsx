@@ -75,7 +75,9 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
   const [nameError, setNameError] = useState('')
   const [mode, setMode] = useState<'queue' | 'regular'>('queue')
   const [isolatedDb, setIsolatedDb] = useState(false)
+  const [snapshot, setSnapshot] = useState('')
   const [versionPopoverOpen, setVersionPopoverOpen] = useState(false)
+  const [snapshotPopoverOpen, setSnapshotPopoverOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
 
   const debouncedSearch = useDebounce(searchQuery, 300)
@@ -93,6 +95,12 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
     queryFn: api.getClusterResources,
     refetchInterval: 5000, // Poll every 5s while drawer open
     enabled: open,
+  })
+
+  const { data: namedSnapshots, isLoading: isLoadingSnapshots } = useQuery({
+    queryKey: ['named-snapshots'],
+    queryFn: api.getNamedSnapshots,
+    enabled: open && isolatedDb,
   })
 
   const QUEUE_MODE_MEMORY = 1792
@@ -181,6 +189,7 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
       mode,
       isolated_db: isolatedDb,
       name: customName || undefined,
+      snapshot: snapshot || undefined,
     })
   }
 
@@ -360,6 +369,83 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
               Use isolated database (experimental)
             </Label>
           </div>
+
+          {/* Snapshot Selection (only when isolated DB enabled) */}
+          {isolatedDb && (
+            <div className="space-y-2">
+              <Label>Snapshot (optional)</Label>
+              <Popover open={snapshotPopoverOpen} onOpenChange={setSnapshotPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={snapshotPopoverOpen}
+                    className="w-full justify-between"
+                  >
+                    {snapshot || 'Select snapshot...'}
+                    <ChevronsUpDownIcon className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search snapshots..." />
+                    <CommandList>
+                      {isLoadingSnapshots ? (
+                        <div className="p-4 space-y-2">
+                          {Array(3)
+                            .fill(0)
+                            .map((_, i) => (
+                              <Skeleton key={i} className="h-8 w-full" />
+                            ))}
+                        </div>
+                      ) : !namedSnapshots || namedSnapshots.length === 0 ? (
+                        <CommandEmpty>No snapshots available.</CommandEmpty>
+                      ) : (
+                        <CommandGroup>
+                          <CommandItem
+                            value=""
+                            onSelect={() => {
+                              setSnapshot('')
+                              setSnapshotPopoverOpen(false)
+                            }}
+                          >
+                            <CheckIcon
+                              className={cn(
+                                'mr-2 h-4 w-4',
+                                !snapshot ? 'opacity-100' : 'opacity-0'
+                              )}
+                            />
+                            None (fresh database)
+                          </CommandItem>
+                          {namedSnapshots.map((s) => (
+                            <CommandItem
+                              key={s.filename}
+                              value={s.name || s.filename}
+                              onSelect={() => {
+                                setSnapshot(s.name || s.filename)
+                                setSnapshotPopoverOpen(false)
+                              }}
+                            >
+                              <CheckIcon
+                                className={cn(
+                                  'mr-2 h-4 w-4',
+                                  snapshot === (s.name || s.filename) ? 'opacity-100' : 'opacity-0'
+                                )}
+                              />
+                              {s.name || s.filename}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <p className="text-xs text-muted-foreground">
+                Restore from a named snapshot when creating the isolated database
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Capacity Warning */}

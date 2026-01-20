@@ -51,6 +51,7 @@ export interface DeployRequest {
   mode: 'queue' | 'regular'
   isolated_db: boolean
   name?: string
+  snapshot?: string
 }
 
 export interface AvailableVersionsResponse {

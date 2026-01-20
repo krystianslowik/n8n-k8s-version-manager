@@ -37,7 +37,11 @@ export const api = {
   },
 
   async deployVersion(request: DeployRequest): Promise<ApiResponse> {
-    return fetchApi('/api/versions', {
+    const url = new URL('/api/versions', API_URL)
+    if (request.snapshot) {
+      url.searchParams.append('snapshot', request.snapshot)
+    }
+    return fetchApi(url.pathname + url.search, {
       method: 'POST',
       body: JSON.stringify(request),
     })

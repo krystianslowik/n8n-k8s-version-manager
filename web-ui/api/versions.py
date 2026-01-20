@@ -150,7 +150,7 @@ async def list_versions():
 
 
 @router.post("")
-async def deploy_version(request: DeployRequest):
+async def deploy_version(request: DeployRequest, snapshot: Optional[str] = None):
     """Deploy a new n8n version."""
     try:
         mode_flag = "--queue" if request.mode == "queue" else "--regular"
@@ -161,6 +161,9 @@ async def deploy_version(request: DeployRequest):
 
         if request.name:
             cmd.extend(["--name", request.name])
+
+        if snapshot:
+            cmd.extend(["--snapshot", snapshot])
 
         result = subprocess.run(cmd, capture_output=True, text=True, cwd="/workspace")
 
