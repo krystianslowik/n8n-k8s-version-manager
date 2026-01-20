@@ -1,0 +1,70 @@
+{{- if and .Values.isolatedDB .Values.database.isolated.snapshot.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: restore-snapshot-{{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+      # Wait for postgres to be ready
+      - name: wait-for-postgres
+        image: postgres:16
+        command:
+        - /bin/bash
+        - -c
+        - |
+          until pg_isready -h postgres-{{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local -U admin; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready"
+      containers:
+      - name: restore
+        image: postgres:16
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+
+          SNAPSHOT_FILE="/snapshots/{{ .Values.database.isolated.snapshot.name }}"
+
+          if [ ! -f "$SNAPSHOT_FILE" ]; then
+            echo "ERROR: Snapshot not found: $SNAPSHOT_FILE"
+            echo "Available snapshots:"
+            ls -lh /snapshots/
+            exit 1
+          fi
+
+          echo "Restoring snapshot: {{ .Values.database.isolated.snapshot.name }}"
+          echo "Target database: postgres-{{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local"
+
+          # Restore snapshot to isolated database
+          PGPASSWORD=changeme123 psql \
+            -h postgres-{{ .Release.Name }}.{{ .Release.Namespace }}.svc.cluster.local \
+            -U admin \
+            -d n8n \
+            < "$SNAPSHOT_FILE"
+
+          echo "Snapshot restored successfully"
+        volumeMounts:
+        - name: snapshots
+          mountPath: /snapshots
+          readOnly: true
+      volumes:
+      # Mount the snapshot storage from n8n-system namespace
+      # Note: This assumes NFS or similar shared storage
+      - name: snapshots
+        persistentVolumeClaim:
+          claimName: backup-storage
+          # This will fail if PVC is not shared across namespaces
+          # Alternative: Use a CronJob to copy snapshot before deployment
+{{- end }}
