@@ -13,13 +13,13 @@ interface StatCardProps {
 export function StatCard({ label, value, trend, trendDirection, icon }: StatCardProps) {
   return (
     <Card>
-      <CardContent className="pt-6">
+      <CardContent className="py-4 px-6">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-muted-foreground">{label}</p>
-            <p className="text-3xl font-bold mt-1">{value}</p>
+            <p className="text-2xl font-bold mt-1">{value}</p>
             {trend && (
-              <div className="flex items-center gap-1 mt-2">
+              <div className="flex items-center gap-1 mt-1">
                 {trendDirection === 'up' && (
                   <ArrowUpIcon className="h-3 w-3 text-green-500" />
                 )}

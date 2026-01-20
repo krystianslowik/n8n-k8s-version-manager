@@ -26,9 +26,6 @@ export function Sidebar() {
 
   const navItems = [
     { icon: LayoutDashboardIcon, label: 'Dashboard', href: '/' },
-    { icon: PackageIcon, label: 'Deployments', href: '/deployments' },
-    { icon: DatabaseIcon, label: 'Snapshots', href: '/snapshots' },
-    { icon: SettingsIcon, label: 'Settings', href: '/settings' },
   ]
 
   return (
@@ -92,14 +89,7 @@ export function Sidebar() {
               <ServerIcon className="h-3 w-3" />
               <span className="text-xs">Postgres</span>
             </div>
-            <Badge
-              variant={
-                infrastructure?.postgres.status === 'healthy'
-                  ? 'default'
-                  : 'destructive'
-              }
-              className="text-xs"
-            >
+            <Badge variant="secondary" className="text-xs">
               {infrastructure?.postgres.status || 'unknown'}
             </Badge>
           </div>
@@ -108,14 +98,7 @@ export function Sidebar() {
               <ServerIcon className="h-3 w-3" />
               <span className="text-xs">Redis</span>
             </div>
-            <Badge
-              variant={
-                infrastructure?.redis.status === 'healthy'
-                  ? 'default'
-                  : 'destructive'
-              }
-              className="text-xs"
-            >
+            <Badge variant="secondary" className="text-xs">
               {infrastructure?.redis.status || 'unknown'}
             </Badge>
           </div>
