@@ -28,6 +28,11 @@ database:
       limits:
         cpu: 1000m
         memory: 2Gi
+    # Snapshot restore configuration
+    snapshot:
+      enabled: false          # Set to true to restore from snapshot
+      name: ""                # Snapshot filename (e.g., "test-data-v1.sql")
+      sourceNamespace: "n8n-system"  # Where backup-storage PVC is mounted
 
 # Redis configuration (only used in queue mode)
 redis:
