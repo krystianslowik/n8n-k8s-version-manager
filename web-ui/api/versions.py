@@ -1,10 +1,31 @@
 import subprocess
 import re
+import tempfile
+import os
+import logging
+import yaml
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/versions", tags=["versions"])
+
+
+class EnvVar(BaseModel):
+    key: str
+    value: str
+
+
+class ResourceConfig(BaseModel):
+    cpu: Optional[str] = None
+    memory: Optional[str] = None
+
+
+class CustomValues(BaseModel):
+    envVars: Optional[List[EnvVar]] = None
+    resources: Optional[ResourceConfig] = None
+    workerReplicas: Optional[int] = None
+    rawYaml: Optional[str] = None
 
 
 class DeployRequest(BaseModel):
@@ -13,6 +34,54 @@ class DeployRequest(BaseModel):
     isolated_db: bool = False
     name: Optional[str] = None  # Optional custom namespace name
     snapshot: Optional[str] = None  # Optional snapshot name for isolated DB
+    custom_values: Optional[CustomValues] = None
+
+
+def deep_merge(base: dict, override: dict) -> dict:
+    """Deep merge two dictionaries, override takes precedence."""
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def build_helm_values(custom: CustomValues) -> dict:
+    """Convert CustomValues to Helm values dictionary."""
+    values = {}
+
+    # Environment variables
+    if custom.envVars:
+        values['extraEnv'] = {ev.key: ev.value for ev in custom.envVars}
+
+    # Resource limits
+    if custom.resources:
+        resources = {}
+        if custom.resources.cpu or custom.resources.memory:
+            resources['main'] = {'limits': {}}
+            if custom.resources.cpu:
+                resources['main']['limits']['cpu'] = custom.resources.cpu
+            if custom.resources.memory:
+                resources['main']['limits']['memory'] = custom.resources.memory
+        if resources:
+            values['resources'] = resources
+
+    # Worker replicas
+    if custom.workerReplicas is not None:
+        values['replicas'] = {'workers': custom.workerReplicas}
+
+    # Raw YAML override (merge, raw takes precedence)
+    if custom.rawYaml:
+        try:
+            raw_values = yaml.safe_load(custom.rawYaml)
+            if isinstance(raw_values, dict):
+                values = deep_merge(values, raw_values)
+        except yaml.YAMLError:
+            pass  # Invalid YAML, ignore
+
+    return values
 
 
 def parse_versions_output(output: str) -> List[Dict[str, Any]]:
@@ -177,6 +246,7 @@ async def list_versions():
 @router.post("")
 async def deploy_version(request: DeployRequest):
     """Deploy a new n8n version."""
+    values_file = None
     try:
         mode_flag = "--queue" if request.mode == "queue" else "--regular"
         cmd = ["/workspace/scripts/deploy-version.sh", request.version, mode_flag]
@@ -189,6 +259,16 @@ async def deploy_version(request: DeployRequest):
 
         if request.snapshot:
             cmd.extend(["--snapshot", request.snapshot])
+
+        # Handle custom values
+        if request.custom_values:
+            helm_values = build_helm_values(request.custom_values)
+            if helm_values:
+                # Write to temp file
+                fd, values_file = tempfile.mkstemp(suffix='.yaml', prefix='helm-values-')
+                with os.fdopen(fd, 'w') as f:
+                    yaml.dump(helm_values, f)
+                cmd.extend(["--values-file", values_file])
 
         result = subprocess.run(cmd, capture_output=True, text=True, cwd="/workspace")
 
@@ -204,7 +284,6 @@ async def deploy_version(request: DeployRequest):
             if "already exists" in error_msg.lower() and "namespace" in error_msg.lower():
                 # This is likely a false positive - deployment probably succeeded
                 # Log the warning but treat as success
-                import logging
                 logging.warning(f"Helm reported namespace error but deployment likely succeeded: {error_msg}")
             else:
                 return {
@@ -237,6 +316,10 @@ async def deploy_version(request: DeployRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Clean up temp values file
+        if values_file and os.path.exists(values_file):
+            os.unlink(values_file)
 
 
 @router.delete("/{namespace}")

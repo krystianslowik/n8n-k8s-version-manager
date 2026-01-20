@@ -2,7 +2,7 @@
 
 set -e
 
-# Usage: ./scripts/deploy-version.sh <version> [--queue|--regular] [--isolated-db] [--snapshot <name>] [--name <custom-name>]
+# Usage: ./scripts/deploy-version.sh <version> [--queue|--regular] [--isolated-db] [--snapshot <name>] [--name <custom-name>] [--values-file <path>]
 
 VERSION=$1
 shift
@@ -12,6 +12,7 @@ MODE="--queue"
 ISOLATED_DB=""
 CUSTOM_NAME=""
 SNAPSHOT_NAME=""
+VALUES_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -29,6 +30,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --snapshot)
       SNAPSHOT_NAME="$2"
+      shift 2
+      ;;
+    --values-file)
+      VALUES_FILE="$2"
       shift 2
       ;;
     *)
@@ -289,6 +294,11 @@ if [ -n "$SNAPSHOT_NAME" ]; then
   HELM_CMD="$HELM_CMD \
     --set database.isolated.snapshot.enabled=true \
     --set database.isolated.snapshot.name=\"${SNAPSHOT_NAME}.sql\""
+fi
+
+# Add custom values file if provided
+if [ -n "$VALUES_FILE" ]; then
+  HELM_CMD="$HELM_CMD -f \"$VALUES_FILE\""
 fi
 
 # Execute Helm install
