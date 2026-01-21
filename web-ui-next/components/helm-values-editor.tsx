@@ -25,22 +25,13 @@ interface HelmValuesEditorProps {
   value: HelmValues
   onChange: (value: HelmValues) => void
   isQueueMode: boolean
-  isIsolatedDb: boolean
 }
 
 // Chart defaults - shown as placeholders
 const DEFAULTS = {
   database: {
-    shared: {
-      host: 'postgres.n8n-system.svc.cluster.local',
-      port: 5432,
-      database: 'n8n',
-      username: 'admin',
-    },
-    isolated: {
-      image: 'postgres:16',
-      storage: '10Gi',
-    },
+    image: 'postgres:16',
+    storage: '10Gi',
   },
   redis: {
     host: 'redis.n8n-system.svc.cluster.local',
@@ -77,7 +68,7 @@ const TIMEZONES = [
   'UTC',
 ]
 
-export function HelmValuesEditor({ value, onChange, isQueueMode, isIsolatedDb }: HelmValuesEditorProps) {
+export function HelmValuesEditor({ value, onChange, isQueueMode }: HelmValuesEditorProps) {
   const [rawYamlOpen, setRawYamlOpen] = useState(false)
   const [envVars, setEnvVars] = useState<EnvVar[]>(() => {
     // Convert extraEnv Record to EnvVar array for editing
@@ -188,96 +179,35 @@ export function HelmValuesEditor({ value, onChange, isQueueMode, isIsolatedDb }:
 
       {/* Database Tab */}
       <TabsContent value="database" className="space-y-4 mt-4">
-        {isIsolatedDb ? (
-          // Isolated DB settings
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Configure the isolated PostgreSQL instance for this deployment.
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Configure the isolated PostgreSQL instance for this deployment.
+          </p>
+          <div className="space-y-2">
+            <Label className="text-sm">Storage Size</Label>
+            <Input
+              placeholder={DEFAULTS.database.storage}
+              value={value.database?.isolated?.storage?.size || ''}
+              onChange={(e) => updateValue(['database', 'isolated', 'storage', 'size'], e.target.value)}
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              Persistent volume size (e.g., 10Gi, 20Gi)
             </p>
-            <div className="space-y-2">
-              <Label className="text-sm">Storage Size</Label>
-              <Input
-                placeholder={DEFAULTS.database.isolated.storage}
-                value={value.database?.isolated?.storage?.size || ''}
-                onChange={(e) => updateValue(['database', 'isolated', 'storage', 'size'], e.target.value)}
-                className="font-mono text-sm"
-              />
-              <p className="text-xs text-muted-foreground">
-                Persistent volume size (e.g., 10Gi, 20Gi)
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-sm">Postgres Image</Label>
-              <Input
-                placeholder={DEFAULTS.database.isolated.image}
-                value={value.database?.isolated?.image || ''}
-                onChange={(e) => updateValue(['database', 'isolated', 'image'], e.target.value)}
-                className="font-mono text-sm"
-              />
-              <p className="text-xs text-muted-foreground">
-                PostgreSQL Docker image (e.g., postgres:16, postgres:15)
-              </p>
-            </div>
           </div>
-        ) : (
-          // Shared DB settings
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Configure connection to the shared PostgreSQL instance.
+          <div className="space-y-2">
+            <Label className="text-sm">Postgres Image</Label>
+            <Input
+              placeholder={DEFAULTS.database.image}
+              value={value.database?.isolated?.image || ''}
+              onChange={(e) => updateValue(['database', 'isolated', 'image'], e.target.value)}
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              PostgreSQL Docker image (e.g., postgres:16, postgres:15)
             </p>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm">Host</Label>
-                <Input
-                  placeholder={DEFAULTS.database.shared.host}
-                  value={value.database?.shared?.host || ''}
-                  onChange={(e) => updateValue(['database', 'shared', 'host'], e.target.value)}
-                  className="font-mono text-sm"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm">Port</Label>
-                <Input
-                  type="number"
-                  placeholder={String(DEFAULTS.database.shared.port)}
-                  value={value.database?.shared?.port || ''}
-                  onChange={(e) => updateValue(['database', 'shared', 'port'], e.target.value ? parseInt(e.target.value) : undefined)}
-                  className="font-mono text-sm"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-sm">Database Name</Label>
-              <Input
-                placeholder={DEFAULTS.database.shared.database}
-                value={value.database?.shared?.database || ''}
-                onChange={(e) => updateValue(['database', 'shared', 'database'], e.target.value)}
-                className="font-mono text-sm"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm">Username</Label>
-                <Input
-                  placeholder={DEFAULTS.database.shared.username}
-                  value={value.database?.shared?.username || ''}
-                  onChange={(e) => updateValue(['database', 'shared', 'username'], e.target.value)}
-                  className="font-mono text-sm"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm">Password</Label>
-                <Input
-                  type="password"
-                  placeholder="••••••••"
-                  value={value.database?.shared?.password || ''}
-                  onChange={(e) => updateValue(['database', 'shared', 'password'], e.target.value)}
-                  className="font-mono text-sm"
-                />
-              </div>
-            </div>
           </div>
-        )}
+        </div>
       </TabsContent>
 
       {/* Redis Tab (queue mode only) */}
