@@ -42,12 +42,12 @@ export interface SnapshotActionResponse {
 }
 
 export interface InfrastructureStatus {
-  postgres: {
-    status: 'healthy' | 'unhealthy'
+  redis: {
+    status: 'healthy' | 'unavailable'
     message?: string
   }
-  redis: {
-    status: 'healthy' | 'unhealthy'
+  backup: {
+    status: 'healthy' | 'unavailable'
     message?: string
   }
 }
