@@ -14,12 +14,12 @@ Run multiple n8n versions on local Kubernetes. Each deployment gets its own name
 │  │  │   n8n-system    │   │   n8n-v1-85-0   │   ...more versions  │ │
 │  │  │                 │   │                 │                     │ │
 │  │  │  ┌───────────┐  │   │  ┌───────────┐  │                     │ │
-│  │  │  │ PostgreSQL│  │   │  │ PostgreSQL│  │  (isolated DB)      │ │
-│  │  │  │ (system)  │  │   │  │ (per-ns)  │  │                     │ │
+│  │  │  │   Redis   │  │   │  │ PostgreSQL│  │  (isolated DB)      │ │
+│  │  │  │ (shared)  │  │   │  │ (per-ns)  │  │                     │ │
 │  │  │  └───────────┘  │   │  └───────────┘  │                     │ │
 │  │  │  ┌───────────┐  │   │  ┌───────────┐  │                     │ │
-│  │  │  │   Redis   │  │   │  │  n8n main │  │                     │ │
-│  │  │  │ (shared)  │  │   │  └───────────┘  │                     │ │
+│  │  │  │  Backup   │  │   │  │  n8n main │  │                     │ │
+│  │  │  │  Storage  │  │   │  └───────────┘  │                     │ │
 │  │  │  └───────────┘  │   │  ┌───────────┐  │                     │ │
 │  │  │                 │   │  │  workers  │  │  (queue mode)       │ │
 │  │  │                 │   │  └───────────┘  │                     │ │
@@ -31,12 +31,12 @@ Run multiple n8n versions on local Kubernetes. Each deployment gets its own name
 └─────────────────────────────────────────────────────────────────────┘
          │                           │
          ▼                           ▼
-    localhost:3000              localhost:30185
+    localhost:3000              localhost:30950
     (Web UI + API)              (n8n instance)
 ```
 
 **Components:**
-- **n8n-system namespace**: Shared Redis for queue coordination, system PostgreSQL for backup storage
+- **n8n-system namespace**: Shared Redis for queue coordination, backup storage pod for snapshots
 - **Per-version namespace**: Each deployment runs in `n8n-v{version}` with its own PostgreSQL StatefulSet, n8n main pod, and optionally workers + webhook pods (queue mode)
 - **Web UI**: Next.js frontend at port 3000
 - **API**: FastAPI backend that orchestrates kubectl/helm commands
@@ -87,7 +87,7 @@ Click any deployment row to view:
 
 ### Snapshots
 
-Database snapshots stored as pg_dump files on the host. Operations:
+Database snapshots stored as pg_dump files in backup storage. Operations:
 - Create from deployment (row menu)
 - Restore to deployment (Status tab)
 - Upload existing backup files
@@ -127,7 +127,7 @@ Custom-named deployments use CRC32 hash mod 1000 + 30000.
 │   ├── components/          # React components
 │   └── lib/                 # API client, types
 ├── charts/
-│   ├── n8n-infrastructure/  # PostgreSQL, Redis, backup jobs
+│   ├── n8n-infrastructure/  # Redis, backup storage
 │   └── n8n-instance/        # n8n deployment chart
 ├── scripts/                 # CLI tools
 └── docker-compose.yml       # Run UI + API

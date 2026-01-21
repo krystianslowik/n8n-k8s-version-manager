@@ -336,10 +336,9 @@ async def upload_snapshot(
         with os.fdopen(fd, 'wb') as f:
             f.write(content)
 
-        # Copy to backup storage via kubectl cp to the postgres pod in n8n-system
-        # First, get the postgres pod name
+        # Copy to backup storage via kubectl cp to the backup-storage pod
         pod_result = subprocess.run(
-            ["kubectl", "get", "pods", "-n", "n8n-system", "-l", "app=postgres",
+            ["kubectl", "get", "pods", "-n", "n8n-system", "-l", "app=backup-storage",
              "-o", "jsonpath={.items[0].metadata.name}"],
             capture_output=True,
             text=True
@@ -348,15 +347,15 @@ async def upload_snapshot(
         if pod_result.returncode != 0 or not pod_result.stdout.strip():
             return {
                 "success": False,
-                "error": "Could not find postgres pod in n8n-system"
+                "error": "Could not find backup-storage pod in n8n-system"
             }
 
-        postgres_pod = pod_result.stdout.strip()
+        backup_pod = pod_result.stdout.strip()
         dest_path = f"/backups/snapshots/{name}.sql"
 
         # Copy file to pod
         cp_result = subprocess.run(
-            ["kubectl", "cp", temp_file, f"n8n-system/{postgres_pod}:{dest_path}"],
+            ["kubectl", "cp", temp_file, f"n8n-system/{backup_pod}:{dest_path}"],
             capture_output=True,
             text=True
         )

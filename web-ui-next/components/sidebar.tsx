@@ -5,6 +5,7 @@ import {
   LayoutDashboardIcon,
   ChevronLeftIcon,
   ServerIcon,
+  DatabaseIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -19,8 +20,8 @@ export function Sidebar() {
   const { data: infrastructure, isLoading } = useQuery({
     queryKey: ['infrastructure'],
     queryFn: api.getInfrastructureStatus,
-    staleTime: 30000, // Infrastructure rarely changes
-    refetchInterval: 30000, // Poll every 30s (reduced from 10s)
+    staleTime: 30000,
+    refetchInterval: 30000,
   })
 
   const navItems = [
@@ -86,28 +87,16 @@ export function Sidebar() {
           {isLoading ? (
             <>
               <div className="flex items-center justify-between">
-                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-4 w-12" />
                 <Skeleton className="h-5 w-14" />
               </div>
               <div className="flex items-center justify-between">
-                <Skeleton className="h-4 w-12" />
+                <Skeleton className="h-4 w-14" />
                 <Skeleton className="h-5 w-14" />
               </div>
             </>
           ) : (
             <>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <ServerIcon className="h-3 w-3" />
-                  <span className="text-xs">Postgres</span>
-                </div>
-                <Badge
-                  variant={infrastructure?.postgres.status === 'healthy' ? 'default' : 'destructive'}
-                  className="text-xs"
-                >
-                  {infrastructure?.postgres.status || 'unknown'}
-                </Badge>
-              </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <ServerIcon className="h-3 w-3" />
@@ -118,6 +107,18 @@ export function Sidebar() {
                   className="text-xs"
                 >
                   {infrastructure?.redis.status || 'unknown'}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <DatabaseIcon className="h-3 w-3" />
+                  <span className="text-xs">Backups</span>
+                </div>
+                <Badge
+                  variant={infrastructure?.backup?.status === 'healthy' ? 'default' : 'destructive'}
+                  className="text-xs"
+                >
+                  {infrastructure?.backup?.status || 'unknown'}
                 </Badge>
               </div>
             </>

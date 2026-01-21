@@ -54,9 +54,9 @@ spec:
       restartPolicy: Never
       containers:
       - name: copy
-        image: postgres:16
+        image: alpine:3.19
         command:
-        - /bin/bash
+        - /bin/sh
         - -c
         - |
           set -e
@@ -94,11 +94,11 @@ kubectl wait --for=condition=complete job/${JOB_NAME} -n n8n-system --timeout=60
 echo "Restoring database in ${NAMESPACE}..."
 
 # The isolated postgres doesn't have access to the backup PVC, so we need to:
-# 1. Read the snapshot content from the backup pod
+# 1. Read the snapshot content from the backup-storage pod
 # 2. Pipe it directly to the target postgres
 
 # Get the snapshot content and pipe to target postgres
-kubectl exec -n n8n-system deploy/postgres -- cat /backups/restore-temp.sql | \
+kubectl exec -n n8n-system deploy/backup-storage -- cat /backups/restore-temp.sql | \
   kubectl exec -i -n "$NAMESPACE" "$POSTGRES_POD" -- sh -c "
     echo 'Dropping existing database...'
     psql -U admin -d postgres -c 'DROP DATABASE IF EXISTS n8n;'
@@ -113,7 +113,7 @@ kubectl exec -n n8n-system deploy/postgres -- cat /backups/restore-temp.sql | \
   "
 
 # Clean up temp file
-kubectl exec -n n8n-system deploy/postgres -- rm -f /backups/restore-temp.sql
+kubectl exec -n n8n-system deploy/backup-storage -- rm -f /backups/restore-temp.sql
 
 echo ""
 echo "Restore complete!"

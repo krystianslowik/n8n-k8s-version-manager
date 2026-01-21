@@ -2,7 +2,7 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: postgres-backup-cleanup
+  name: backup-cleanup
   namespace: n8n-system
   labels:
     {{- include "n8n-infrastructure.labels" . | nindent 4 }}
@@ -20,16 +20,16 @@ spec:
         spec:
           restartPolicy: OnFailure
           containers:
-          - name: backup-cleanup
-            image: postgres:16
+          - name: cleanup
+            image: alpine:3.19
             command:
-            - /bin/bash
+            - /bin/sh
             - -c
             - |
-              # Keep only the last N backups (retention policy)
-              cd /backups
-              ls -t n8n-*.sql 2>/dev/null | tail -n +{{ add .Values.backup.retention 1 }} | xargs -r rm -f
-              echo "Backup cleanup completed. Kept last {{ .Values.backup.retention }} backups."
+              cd /backups/snapshots
+              ls -t *.sql 2>/dev/null | tail -n +{{ add .Values.backup.retention 1 }} | xargs -r rm -f
+              ls -t *.sql.meta 2>/dev/null | tail -n +{{ add .Values.backup.retention 1 }} | xargs -r rm -f
+              echo "Cleanup done. Kept last {{ .Values.backup.retention }} snapshots."
             volumeMounts:
             - name: backup-storage
               mountPath: /backups

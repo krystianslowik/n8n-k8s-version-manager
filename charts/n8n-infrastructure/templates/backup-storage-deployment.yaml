@@ -1,0 +1,38 @@
+{{- if .Values.backup.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backup-storage
+  namespace: n8n-system
+  labels:
+    {{- include "n8n-infrastructure.labels" . | nindent 4 }}
+    app: backup-storage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backup-storage
+  template:
+    metadata:
+      labels:
+        app: backup-storage
+    spec:
+      containers:
+      - name: storage
+        image: alpine:3.19
+        command: ["sleep", "infinity"]
+        volumeMounts:
+        - name: backup-storage
+          mountPath: /backups
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+      volumes:
+      - name: backup-storage
+        persistentVolumeClaim:
+          claimName: backup-storage
+{{- end }}

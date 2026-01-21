@@ -16,9 +16,9 @@ spec:
       restartPolicy: OnFailure
       containers:
       - name: create-initial
-        image: postgres:16
+        image: alpine:3.19
         command:
-        - /bin/bash
+        - /bin/sh
         - -c
         - |
           set -e
