@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import List, Dict
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
+from validation import validate_namespace, validate_snapshot_name, validate_filename
 
 router = APIRouter(prefix="/api/snapshots", tags=["snapshots"])
 
@@ -133,23 +134,22 @@ async def restore_snapshot(request: RestoreRequest):
             capture_output=True,
             text=True,
             cwd="/workspace",
-            input="yes\n"  # Auto-confirm the restore
+            input="yes\n"
         )
 
         if result.returncode != 0:
-            return {
-                "success": False,
-                "message": "Restore failed",
-                "error": result.stderr,
-                "output": result.stdout
-            }
+            raise HTTPException(
+                status_code=500,
+                detail=result.stderr.strip() or result.stdout.strip() or "Restore failed"
+            )
 
         return {
             "success": True,
-            "message": f"Snapshot {request.snapshot} restored",
-            "output": result.stdout
+            "message": f"Snapshot {request.snapshot} restored"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -157,14 +157,9 @@ async def restore_snapshot(request: RestoreRequest):
 @router.post("/restore-to-deployment")
 async def restore_to_deployment(request: RestoreToDeploymentRequest):
     """Restore snapshot to a specific deployment's isolated database."""
-    try:
-        # Validate namespace format
-        if '/' in request.namespace or '..' in request.namespace:
-            return {
-                "success": False,
-                "error": "Invalid namespace"
-            }
+    validate_namespace(request.namespace)
 
+    try:
         result = subprocess.run(
             ["/workspace/scripts/restore-to-deployment.sh", request.snapshot, request.namespace],
             capture_output=True,
@@ -173,19 +168,18 @@ async def restore_to_deployment(request: RestoreToDeploymentRequest):
         )
 
         if result.returncode != 0:
-            return {
-                "success": False,
-                "message": "Restore failed",
-                "error": result.stderr,
-                "output": result.stdout
-            }
+            raise HTTPException(
+                status_code=500,
+                detail=result.stderr.strip() or result.stdout.strip() or "Restore failed"
+            )
 
         return {
             "success": True,
-            "message": f"Snapshot {request.snapshot} restored to {request.namespace}",
-            "output": result.stdout
+            "message": f"Snapshot {request.snapshot} restored to {request.namespace}"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -202,17 +196,17 @@ async def create_snapshot():
         )
 
         if result.returncode != 0:
-            return {
-                "success": False,
-                "error": result.stderr,
-                "output": result.stdout
-            }
+            raise HTTPException(
+                status_code=500,
+                detail=result.stderr.strip() or result.stdout.strip() or "Snapshot creation failed"
+            )
 
         return {
             "success": True,
-            "message": "Snapshot creation started",
-            "output": result.stdout
+            "message": "Snapshot creation started"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -220,38 +214,30 @@ async def create_snapshot():
 @router.post("/create-named")
 async def create_named_snapshot(request: CreateNamedSnapshotRequest):
     """Create named database snapshot."""
-    try:
-        # Validate name
-        if not re.match(r'^[a-zA-Z0-9_-]+$', request.name):
-            return {
-                "success": False,
-                "error": "Invalid name. Use only letters, numbers, hyphens, and underscores"
-            }
+    validate_snapshot_name(request.name)
 
-        # Run create-named-snapshot.sh script
+    if request.source != "shared":
+        validate_namespace(request.source)
+
+    try:
         cmd = ["/workspace/scripts/create-named-snapshot.sh", request.name]
         if request.source != "shared":
             cmd.extend(["--source", request.source])
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd="/workspace"
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd="/workspace")
 
         if result.returncode != 0:
-            return {
-                "success": False,
-                "error": result.stderr,
-                "output": result.stdout
-            }
+            raise HTTPException(
+                status_code=500,
+                detail=result.stderr.strip() or result.stdout.strip() or "Snapshot creation failed"
+            )
 
         return {
             "success": True,
-            "message": f"Named snapshot '{request.name}' created",
-            "output": result.stdout
+            "message": f"Named snapshot '{request.name}' created"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -259,34 +245,29 @@ async def create_named_snapshot(request: CreateNamedSnapshotRequest):
 @router.delete("/{filename}")
 async def delete_snapshot(filename: str):
     """Delete a snapshot by filename."""
-    try:
-        # Security: validate filename
-        if not filename.endswith('.sql') or '/' in filename or '..' in filename:
-            return {
-                "success": False,
-                "error": "Invalid filename"
-            }
+    validate_filename(filename)
 
+    try:
         result = subprocess.run(
             ["/workspace/scripts/delete-snapshot.sh", filename],
             capture_output=True,
             text=True,
             cwd="/workspace",
-            input="yes\n"  # Auto-confirm deletion
+            input="yes\n"
         )
 
         if result.returncode != 0:
-            return {
-                "success": False,
-                "error": result.stderr,
-                "output": result.stdout
-            }
+            raise HTTPException(
+                status_code=500,
+                detail=result.stderr.strip() or result.stdout.strip() or "Delete failed"
+            )
 
         return {
             "success": True,
-            "message": f"Snapshot {filename} deleted",
-            "output": result.stdout
+            "message": f"Snapshot {filename} deleted"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -301,42 +282,27 @@ async def upload_snapshot(
     name: str = Form(...)
 ):
     """Upload a SQL snapshot file."""
+    validate_snapshot_name(name)
+
+    if not file.filename or not file.filename.endswith('.sql'):
+        raise HTTPException(status_code=400, detail="File must be a .sql file")
+
     temp_file = None
     try:
-        # Validate name
-        if not re.match(r'^[a-zA-Z0-9_-]+$', name):
-            return {
-                "success": False,
-                "error": "Invalid name. Use only letters, numbers, hyphens, and underscores"
-            }
-
-        # Validate file extension
-        if not file.filename or not file.filename.endswith('.sql'):
-            return {
-                "success": False,
-                "error": "File must be a .sql file"
-            }
-
-        # Read file content with size check
         content = await file.read()
         if len(content) > MAX_UPLOAD_SIZE:
-            return {
-                "success": False,
-                "error": f"File too large. Maximum size is {MAX_UPLOAD_SIZE // (1024*1024)}MB"
-            }
+            raise HTTPException(
+                status_code=400,
+                detail=f"File too large. Maximum size is {MAX_UPLOAD_SIZE // (1024*1024)}MB"
+            )
 
         if len(content) == 0:
-            return {
-                "success": False,
-                "error": "File is empty"
-            }
+            raise HTTPException(status_code=400, detail="File is empty")
 
-        # Write to temp file
         fd, temp_file = tempfile.mkstemp(suffix='.sql')
         with os.fdopen(fd, 'wb') as f:
             f.write(content)
 
-        # Copy to backup storage via kubectl cp to the backup-storage pod
         pod_result = subprocess.run(
             ["kubectl", "get", "pods", "-n", "n8n-system", "-l", "app=backup-storage",
              "-o", "jsonpath={.items[0].metadata.name}"],
@@ -345,15 +311,11 @@ async def upload_snapshot(
         )
 
         if pod_result.returncode != 0 or not pod_result.stdout.strip():
-            return {
-                "success": False,
-                "error": "Could not find backup-storage pod in n8n-system"
-            }
+            raise HTTPException(status_code=503, detail="Backup storage unavailable")
 
         backup_pod = pod_result.stdout.strip()
         dest_path = f"/backups/snapshots/{name}.sql"
 
-        # Copy file to pod
         cp_result = subprocess.run(
             ["kubectl", "cp", temp_file, f"n8n-system/{backup_pod}:{dest_path}"],
             capture_output=True,
@@ -361,10 +323,10 @@ async def upload_snapshot(
         )
 
         if cp_result.returncode != 0:
-            return {
-                "success": False,
-                "error": f"Failed to copy file to storage: {cp_result.stderr}"
-            }
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to copy file to storage: {cp_result.stderr}"
+            )
 
         return {
             "success": True,
@@ -372,12 +334,10 @@ async def upload_snapshot(
             "filename": f"{name}.sql"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Clean up temp file
         if temp_file and os.path.exists(temp_file):
             os.unlink(temp_file)
