@@ -46,3 +46,66 @@ def handle_api_exception(e: ApiException, resource: str = "resource") -> None:
     else:
         logger.error(f"K8s API error: {e.status} {e.reason}")
         raise HTTPException(status_code=500, detail=f"Kubernetes error: {e.reason}")
+
+
+# =============================================================================
+# Namespace Operations
+# =============================================================================
+
+async def list_namespaces(label_selector: str = None) -> List[client.V1Namespace]:
+    """List namespaces, optionally filtered by label."""
+    api = await get_client()
+    v1 = client.CoreV1Api(api)
+    try:
+        result = await v1.list_namespace(label_selector=label_selector)
+        return result.items
+    except ApiException as e:
+        handle_api_exception(e, "namespaces")
+
+
+async def get_namespace(name: str) -> Optional[client.V1Namespace]:
+    """Get a namespace by name, returns None if not found."""
+    api = await get_client()
+    v1 = client.CoreV1Api(api)
+    try:
+        return await v1.read_namespace(name=name)
+    except ApiException as e:
+        if e.status == 404:
+            return None
+        handle_api_exception(e, f"namespace {name}")
+
+
+async def namespace_exists(name: str) -> bool:
+    """Check if a namespace exists."""
+    ns = await get_namespace(name)
+    return ns is not None
+
+
+async def delete_namespace(name: str, wait: bool = True, timeout: int = 60) -> bool:
+    """
+    Delete a namespace.
+    If wait=True, polls until namespace is gone or timeout reached.
+    Returns True if deleted, False if not found.
+    """
+    import asyncio
+    api = await get_client()
+    v1 = client.CoreV1Api(api)
+
+    try:
+        await v1.delete_namespace(
+            name=name,
+            body=client.V1DeleteOptions(propagation_policy="Foreground")
+        )
+    except ApiException as e:
+        if e.status == 404:
+            return False
+        handle_api_exception(e, f"namespace {name}")
+
+    if wait:
+        for _ in range(timeout):
+            if not await namespace_exists(name):
+                return True
+            await asyncio.sleep(1)
+        raise HTTPException(status_code=504, detail="Namespace deletion timed out")
+
+    return True
