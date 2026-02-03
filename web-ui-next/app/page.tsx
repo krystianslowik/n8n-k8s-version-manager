@@ -7,6 +7,7 @@ import { MemoryStatCard } from '@/components/memory-stat-card'
 import { DeploymentsTable } from '@/components/deployments-table'
 import { DeployDrawer } from '@/components/deploy-drawer'
 import { SnapshotsPanel } from '@/components/snapshots-panel'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PlusIcon, PackageIcon, DatabaseIcon } from 'lucide-react'
@@ -93,12 +94,16 @@ export default function Home() {
             <RefreshButton onClick={() => refetch()} isLoading={isFetching} variant="outline" />
           </CardHeader>
           <CardContent>
-            <DeploymentsTable deployments={deployments} isLoading={isLoadingDeployments} />
+            <ErrorBoundary>
+              <DeploymentsTable deployments={deployments} isLoading={isLoadingDeployments} />
+            </ErrorBoundary>
           </CardContent>
         </Card>
 
         {/* Snapshots Panel */}
-        <SnapshotsPanel snapshots={snapshots} isLoading={isLoadingSnapshots} />
+        <ErrorBoundary>
+          <SnapshotsPanel snapshots={snapshots} isLoading={isLoadingSnapshots} />
+        </ErrorBoundary>
       </main>
 
       <DeployDrawer open={deployDrawerOpen} onOpenChange={setDeployDrawerOpen} />
