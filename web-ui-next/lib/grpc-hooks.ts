@@ -28,8 +28,6 @@ import type {
   LogEntry,
   Event,
   GetConfigResponse,
-  GetPodsResponse,
-  GetLogsResponse,
   PodLogs,
 } from './generated/n8n_manager/v1/version_pb'
 
