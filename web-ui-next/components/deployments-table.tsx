@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { useQueryClient } from '@tanstack/react-query'
+import { useDeleteDeployment } from '@/lib/grpc-hooks'
 import {
   Table,
   TableBody,
@@ -115,17 +115,15 @@ export function DeploymentsTable({ deployments, isLoading, isError, onRetry, onD
   const [deploymentToSnapshot, setDeploymentToSnapshot] = useState<Deployment | null>(null)
   const queryClient = useQueryClient()
 
-  const deleteMutation = useMutation({
-    mutationFn: (namespace: string) => api.deleteDeployment(namespace),
+  const deleteMutation = useDeleteDeployment({
     onSuccess: (_data, namespace) => {
       toast.success('Deployment deleted', {
         description: `${namespace} has been removed`,
       })
       addActivity('deleted', namespace)
-      queryClient.invalidateQueries({ queryKey: ['deployments'] })
       setDeletingNamespace(null)
     },
-    onError: (error: Error, namespace) => {
+    onError: (error: Error) => {
       toast.error('Failed to delete deployment', {
         description: error.message,
       })

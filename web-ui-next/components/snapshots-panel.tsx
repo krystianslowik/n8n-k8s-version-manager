@@ -1,7 +1,6 @@
 'use client'
 
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { useDeleteSnapshot } from '@/lib/grpc-hooks'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -33,19 +32,10 @@ export function SnapshotsPanel({ snapshots, isLoading, isError, onRetry }: Snaps
   const [uploadOpen, setUploadOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [deletingSnapshot, setDeletingSnapshot] = useState<string | null>(null)
-  const queryClient = useQueryClient()
 
-  const deleteMutation = useMutation({
-    mutationFn: (filename: string) => api.deleteSnapshot(filename),
-    onSuccess: (data, filename) => {
-      if (data.success) {
-        toast.success('Snapshot deleted')
-        queryClient.invalidateQueries({ queryKey: ['snapshots'] })
-      } else {
-        toast.error('Failed to delete snapshot', {
-          description: data.error,
-        })
-      }
+  const deleteSnapshotMutation = useDeleteSnapshot({
+    onSuccess: () => {
+      toast.success('Snapshot deleted')
       setDeletingSnapshot(null)
     },
     onError: (error: Error) => {
@@ -58,7 +48,7 @@ export function SnapshotsPanel({ snapshots, isLoading, isError, onRetry }: Snaps
 
   const handleDelete = (filename: string) => {
     setDeletingSnapshot(filename)
-    deleteMutation.mutate(filename)
+    deleteSnapshotMutation.mutate(filename)
   }
 
   const handleRestore = (filename: string) => {
