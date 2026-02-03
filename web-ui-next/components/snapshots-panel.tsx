@@ -11,15 +11,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/accordion'
-import { DatabaseIcon, RotateCcwIcon, UploadIcon, TagIcon, ClockIcon, TrashIcon, LoaderIcon } from 'lucide-react'
+import { DatabaseIcon, RotateCcwIcon, UploadIcon, TagIcon, ClockIcon, TrashIcon, LoaderIcon, ChevronDownIcon } from 'lucide-react'
 import { toast } from 'sonner'
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { RestoreSnapshotDialog } from './restore-snapshot-dialog'
 import { UploadSnapshotDialog } from './upload-snapshot-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -37,23 +31,9 @@ interface SnapshotsPanelProps {
 export function SnapshotsPanel({ snapshots, isLoading, isError, onRetry }: SnapshotsPanelProps) {
   const [restoreSnapshot, setRestoreSnapshot] = useState<string | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
-  const [userToggledAccordion, setUserToggledAccordion] = useState(false)
-  const queryClient = useQueryClient()
-
-  // Auto-expand accordion when few snapshots exist (unless user has manually toggled)
-  const accordionValue = useMemo(() => {
-    if (userToggledAccordion) return undefined // Let user's choice persist
-    if (snapshots && snapshots.length > 0 && snapshots.length <= 5) {
-      return 'snapshots'
-    }
-    return undefined
-  }, [snapshots, userToggledAccordion])
-
-  const handleAccordionChange = () => {
-    setUserToggledAccordion(true)
-  }
-
+  const [expanded, setExpanded] = useState(false)
   const [deletingSnapshot, setDeletingSnapshot] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
   const deleteMutation = useMutation({
     mutationFn: (filename: string) => api.deleteSnapshot(filename),
@@ -87,15 +67,28 @@ export function SnapshotsPanel({ snapshots, isLoading, isError, onRetry }: Snaps
 
   const namedSnapshots = snapshots?.filter((s) => s.type === 'named') || []
   const autoSnapshots = snapshots?.filter((s) => s.type === 'auto') || []
+  const allSnapshots = [...namedSnapshots, ...autoSnapshots]
+
+  // Show 4 items by default, expand to show all
+  const COLLAPSED_COUNT = 4
+  const visibleSnapshots = expanded ? allSnapshots : allSnapshots.slice(0, COLLAPSED_COUNT)
+  const hasMore = allSnapshots.length > COLLAPSED_COUNT
 
   return (
     <>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
           <div className="space-y-1">
-            <CardTitle>Database Snapshots</CardTitle>
+            <div className="flex items-center gap-3">
+              <CardTitle>Snapshots</CardTitle>
+              {snapshots && snapshots.length > 0 && (
+                <Badge variant="secondary" className="font-normal">
+                  {snapshots.length}
+                </Badge>
+              )}
+            </div>
             <CardDescription>
-              {snapshots?.length || 0} snapshots available
+              Backup and restore database states
             </CardDescription>
           </div>
           <Button
@@ -107,181 +100,137 @@ export function SnapshotsPanel({ snapshots, isLoading, isError, onRetry }: Snaps
             Upload
           </Button>
         </CardHeader>
-        <CardContent>
-          <Accordion type="single" collapsible value={accordionValue} onValueChange={handleAccordionChange}>
-            <AccordionItem value="snapshots" className="border-none">
-              <AccordionTrigger className="hover:no-underline">
-                <span className="text-sm">
-                  View Snapshots ({snapshots?.length || 0})
-                </span>
-              </AccordionTrigger>
-              <AccordionContent>
-                {isLoading ? (
-                  // Loading skeleton
-                  <div className="space-y-2 py-2">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Skeleton className="h-4 w-4" />
-                          <div className="space-y-1">
-                            <Skeleton className="h-4 w-32" />
-                            <Skeleton className="h-3 w-24" />
-                          </div>
-                        </div>
-                        <Skeleton className="h-8 w-20" />
-                      </div>
-                    ))}
+        <CardContent className="pt-0">
+          {isLoading ? (
+            // Loading skeleton with staggered animation
+            <div className="space-y-1">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 p-2.5 rounded-lg animate-row-enter"
+                  style={{ animationDelay: `${i * 80}ms` }}
+                >
+                  <Skeleton className="h-8 w-8 rounded-md shrink-0 " />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-32 " />
+                    <Skeleton className="h-3 w-24 " />
                   </div>
-                ) : isError ? (
-                  // Error state
-                  <QueryErrorState message="Failed to load snapshots" onRetry={onRetry} />
-                ) : snapshots?.length === 0 ? (
-                  // Empty state
-                  <div className="flex flex-col items-center justify-center py-10 text-center">
-                    <div className="rounded-full bg-muted p-4 mb-4">
-                      <DatabaseIcon className="h-8 w-8 text-muted-foreground" />
+                </div>
+              ))}
+            </div>
+          ) : isError ? (
+            <QueryErrorState message="Failed to load snapshots" onRetry={onRetry} />
+          ) : allSnapshots.length === 0 ? (
+            // Empty state - compact
+            <div className="flex items-center gap-4 p-4 rounded-lg border border-dashed">
+              <div className="rounded-full bg-muted p-3">
+                <DatabaseIcon className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="font-medium text-sm">No snapshots yet</p>
+                <p className="text-xs text-muted-foreground">
+                  Create snapshots to backup database states
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {visibleSnapshots.map((snapshot, index) => {
+                const isNamed = snapshot.type === 'named'
+                const isDeleting = deletingSnapshot === snapshot.filename
+                return (
+                  <div
+                    key={snapshot.filename}
+                    className={`
+                      group flex items-center gap-3 p-2.5 rounded-lg
+                      hover:bg-accent/50 transition-all cursor-default
+                      ${isDeleting ? 'opacity-50' : ''}
+                    `}
+                    style={{
+                      animationDelay: `${index * 30}ms`
+                    }}
+                  >
+                    {/* Icon */}
+                    <div className={`
+                      shrink-0 h-8 w-8 rounded-md flex items-center justify-center
+                      ${isNamed ? 'bg-primary/10' : 'bg-muted'}
+                    `}>
+                      {isNamed ? (
+                        <TagIcon className="h-4 w-4 text-primary" />
+                      ) : (
+                        <ClockIcon className="h-4 w-4 text-muted-foreground" />
+                      )}
                     </div>
-                    <h3 className="font-semibold text-lg mb-1">No snapshots yet</h3>
-                    <p className="text-sm text-muted-foreground max-w-xs">
-                      Snapshots let you backup and restore database states across deployments
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {/* Named Snapshots Section */}
-                    {namedSnapshots.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-3">
-                          <TagIcon className="h-4 w-4 text-muted-foreground" />
-                          <h4 className="text-sm font-medium text-muted-foreground">
-                            Named Snapshots
-                          </h4>
-                          <Badge variant="secondary" className="text-xs">{namedSnapshots.length}</Badge>
-                        </div>
-                        <div className="space-y-2">
-                          {namedSnapshots.map((snapshot) => {
-                            const isDeleting = deletingSnapshot === snapshot.filename
-                            return (
-                              <div
-                                key={snapshot.filename}
-                                className={`group flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-all ${isDeleting ? 'opacity-50' : ''}`}
-                              >
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <div className="shrink-0 h-9 w-9 rounded-md bg-primary/10 flex items-center justify-center">
-                                    <DatabaseIcon className="h-4 w-4 text-primary" />
-                                  </div>
-                                  <div className="min-w-0">
-                                    <p className="font-medium text-sm truncate">
-                                      {snapshot.name}
-                                    </p>
-                                    <p className="text-xs text-muted-foreground font-mono truncate">
-                                      {snapshot.filename}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() => handleRestore(snapshot.filename)}
-                                          disabled={isDeleting}
-                                        >
-                                          <RotateCcwIcon className="h-3.5 w-3.5" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Restore to deployment</TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => handleDelete(snapshot.filename)}
-                                          disabled={isDeleting}
-                                          className="text-muted-foreground hover:text-destructive"
-                                        >
-                                          {isDeleting ? (
-                                            <LoaderIcon className="h-3.5 w-3.5 animate-spin" />
-                                          ) : (
-                                            <TrashIcon className="h-3.5 w-3.5" />
-                                          )}
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Delete snapshot</TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
 
-                    {/* Timestamped Snapshots Section */}
-                    {autoSnapshots.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-3">
-                          <ClockIcon className="h-4 w-4 text-muted-foreground" />
-                          <h4 className="text-sm font-medium text-muted-foreground">
-                            Automatic Snapshots
-                          </h4>
-                          <Badge variant="outline" className="text-xs">{autoSnapshots.length}</Badge>
-                        </div>
-                        <div className="space-y-2">
-                          {autoSnapshots.map((snapshot) => {
-                            const isDeleting = deletingSnapshot === snapshot.filename
-                            return (
-                              <div
-                                key={snapshot.filename}
-                                className={`group flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-all ${isDeleting ? 'opacity-50' : ''}`}
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm truncate ${isNamed ? 'font-medium' : 'font-mono'}`}>
+                        {isNamed ? snapshot.name : snapshot.filename}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {isNamed ? snapshot.filename : snapshot.timestamp}
+                      </p>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => handleRestore(snapshot.filename)}
+                              disabled={isDeleting}
+                            >
+                              <RotateCcwIcon className="h-3.5 w-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="left">Restore</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      {isNamed && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                                onClick={() => handleDelete(snapshot.filename)}
+                                disabled={isDeleting}
                               >
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <div className="shrink-0 h-9 w-9 rounded-md bg-muted flex items-center justify-center">
-                                    <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
-                                  </div>
-                                  <div className="min-w-0">
-                                    <p className="font-mono text-sm truncate">
-                                      {snapshot.filename}
-                                    </p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {snapshot.timestamp}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() => handleRestore(snapshot.filename)}
-                                          disabled={isDeleting}
-                                        >
-                                          <RotateCcwIcon className="h-3.5 w-3.5" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>Restore to deployment</TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
+                                {isDeleting ? (
+                                  <LoaderIcon className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <TrashIcon className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="left">Delete</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                    </div>
                   </div>
-                )}
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
+                )
+              })}
+
+              {/* Show more/less button */}
+              {hasMore && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full mt-2 text-muted-foreground"
+                  onClick={() => setExpanded(!expanded)}
+                >
+                  <ChevronDownIcon className={`h-4 w-4 mr-1 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                  {expanded ? 'Show less' : `Show ${allSnapshots.length - COLLAPSED_COUNT} more`}
+                </Button>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 

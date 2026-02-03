@@ -47,13 +47,13 @@ import {
   CheckIcon,
   ExternalLinkIcon,
   AlertTriangleIcon,
-  RefreshCwIcon,
   SettingsIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useDebounce } from '@/lib/hooks'
 import { HelmValuesEditor } from '@/components/helm-values-editor'
+import { RefreshButton } from '@/components/refresh-button'
 import type { HelmValues, K8sEvent, PodStatus } from '@/lib/types'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -323,15 +323,12 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
                   </Command>
                 </PopoverContent>
               </Popover>
-              <Button
-                variant="outline"
-                size="icon"
+              <RefreshButton
                 onClick={() => refetchVersions()}
-                disabled={isFetchingVersions}
-                title="Refresh versions from GitHub"
-              >
-                <RefreshCwIcon className={cn("h-4 w-4", isFetchingVersions && "animate-spin")} />
-              </Button>
+                isLoading={isFetchingVersions}
+                variant="outline"
+                size="sm"
+              />
             </div>
             <p className="text-xs text-muted-foreground">
               Search or select from all available releases

@@ -157,3 +157,20 @@
 .slide-in-from-bottom-2 {
   animation: slide-in-from-bottom 0.3s ease-out;
 }
+
+/* Staggered row animation for loading states */
+@keyframes row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-row-enter {
+  animation: row-enter 0.3s ease-out forwards;
+  opacity: 0;
+}

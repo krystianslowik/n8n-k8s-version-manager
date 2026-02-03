@@ -93,14 +93,6 @@ export default function Home() {
       <div className="flex-1 flex flex-col">
         <InfrastructureStatus />
         <main className="flex-1 p-8 space-y-6 overflow-y-auto">
-        {/* Hero Section */}
-        <div>
-          <h1 className="text-3xl font-bold">n8n Version Manager</h1>
-          <p className="text-muted-foreground mt-1">
-            {deployments?.length || 0} active deployments
-          </p>
-        </div>
-
         {/* Deployments Table */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">

@@ -154,34 +154,41 @@ export function DeploymentsTable({ deployments, isLoading, isError, onRetry, onD
         </TableHeader>
         <TableBody>
           {isLoading ? (
-            // Skeleton rows
+            // Polished skeleton rows with staggered animation
             Array(3)
               .fill(0)
               .map((_, i) => (
-                <TableRow key={i}>
+                <TableRow
+                  key={i}
+                  className="animate-row-enter"
+                  style={{ animationDelay: `${i * 100}ms` }}
+                >
                   <TableCell>
-                    <Skeleton className="h-5 w-24" />
+                    <Skeleton className="h-5 w-20 " />
                   </TableCell>
                   <TableCell>
-                    <Skeleton className="h-5 w-32" />
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-4 w-28 " />
+                      <Skeleton className="h-3 w-20 " />
+                    </div>
                   </TableCell>
                   <TableCell>
-                    <Skeleton className="h-6 w-20" />
+                    <Skeleton className="h-6 w-20 rounded-full " />
                   </TableCell>
                   <TableCell>
-                    <Skeleton className="h-5 w-12" />
+                    <Skeleton className="h-4 w-14 " />
                   </TableCell>
                   <TableCell>
-                    <Skeleton className="h-5 w-16" />
+                    <Skeleton className="h-5 w-16 rounded-full " />
                   </TableCell>
                   <TableCell>
-                    <Skeleton className="h-5 w-20" />
+                    <Skeleton className="h-5 w-18 rounded-full " />
                   </TableCell>
                   <TableCell>
-                    <Skeleton className="h-5 w-48" />
+                    <Skeleton className="h-8 w-44 " />
                   </TableCell>
                   <TableCell className="text-right">
-                    <Skeleton className="h-8 w-10 ml-auto" />
+                    <Skeleton className="h-8 w-8  ml-auto" />
                   </TableCell>
                 </TableRow>
               ))

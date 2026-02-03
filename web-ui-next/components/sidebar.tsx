@@ -53,19 +53,19 @@ export function Sidebar({ onDeployClick }: SidebarProps) {
     refetchInterval: QUERY_CONFIG.infrastructure.refetchInterval,
   })
 
-  const { data: deployments } = useQuery({
+  const { data: deployments, isLoading: isLoadingDeployments } = useQuery({
     queryKey: ['deployments'],
     queryFn: api.getDeployments,
     staleTime: QUERY_CONFIG.deployments.staleTime,
   })
 
-  const { data: snapshots } = useQuery({
+  const { data: snapshots, isLoading: isLoadingSnapshots } = useQuery({
     queryKey: ['snapshots'],
     queryFn: api.getSnapshots,
     staleTime: QUERY_CONFIG.snapshots.staleTime,
   })
 
-  const { data: clusterResources } = useQuery({
+  const { data: clusterResources, isLoading: isLoadingResources } = useQuery({
     queryKey: ['cluster-resources'],
     queryFn: api.getClusterResources,
     staleTime: QUERY_CONFIG.clusterResources.staleTime,
@@ -113,7 +113,9 @@ export function Sidebar({ onDeployClick }: SidebarProps) {
           {/* Deployments */}
           <div className={cn('flex items-center gap-2', collapsed && 'flex-col gap-1')}>
             <PackageIcon className="h-4 w-4 text-muted-foreground" />
-            {!collapsed ? (
+            {isLoadingDeployments ? (
+              <Skeleton className="h-4 w-20 " />
+            ) : !collapsed ? (
               <span className="text-sm">{deployments?.length || 0} deployments</span>
             ) : (
               <span className="text-xs font-medium">{deployments?.length || 0}</span>
@@ -121,26 +123,35 @@ export function Sidebar({ onDeployClick }: SidebarProps) {
           </div>
 
           {/* Memory Bar */}
-          {!collapsed && memory && (
-            <div className="space-y-1">
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className={cn(
-                    'h-full transition-all',
-                    memory.utilization_percent >= 85 ? 'bg-red-500' :
-                    memory.utilization_percent >= 70 ? 'bg-yellow-500' : 'bg-green-500'
-                  )}
-                  style={{ width: `${memory.utilization_percent}%` }}
-                />
+          {!collapsed && (
+            isLoadingResources ? (
+              <div className="space-y-1">
+                <Skeleton className="h-2 w-full rounded-full " />
+                <Skeleton className="h-3 w-16 " />
               </div>
-              <p className="text-xs text-muted-foreground">{memory.utilization_percent}% memory</p>
-            </div>
+            ) : memory && (
+              <div className="space-y-1">
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={cn(
+                      'h-full transition-all',
+                      memory.utilization_percent >= 85 ? 'bg-red-500' :
+                      memory.utilization_percent >= 70 ? 'bg-yellow-500' : 'bg-green-500'
+                    )}
+                    style={{ width: `${memory.utilization_percent}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">{memory.utilization_percent}% memory</p>
+              </div>
+            )
           )}
 
           {/* Snapshots */}
           <div className={cn('flex items-center gap-2', collapsed && 'flex-col gap-1')}>
             <DatabaseIcon className="h-4 w-4 text-muted-foreground" />
-            {!collapsed ? (
+            {isLoadingSnapshots ? (
+              <Skeleton className="h-4 w-16 " />
+            ) : !collapsed ? (
               <span className="text-sm">{snapshots?.length || 0} snapshots</span>
             ) : (
               <span className="text-xs font-medium">{snapshots?.length || 0}</span>
@@ -185,8 +196,8 @@ export function Sidebar({ onDeployClick }: SidebarProps) {
         )}
         {isLoadingInfra ? (
           <div className={cn('space-y-2', collapsed && 'flex flex-col items-center gap-2')}>
-            <Skeleton className="h-4 w-4 rounded-full" />
-            <Skeleton className="h-4 w-4 rounded-full" />
+            <Skeleton className="h-4 w-4 rounded-full " />
+            <Skeleton className="h-4 w-4 rounded-full " />
           </div>
         ) : collapsed ? (
           <>
