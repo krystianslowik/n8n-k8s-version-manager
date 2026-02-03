@@ -18,7 +18,7 @@ import { QUERY_CONFIG } from '@/lib/query-config'
 
 export default function Home() {
   const [deployDrawerOpen, setDeployDrawerOpen] = useState(false)
-  const { data: deployments, isLoading: isLoadingDeployments, isFetching, refetch } = useQuery({
+  const { data: deployments, isLoading: isLoadingDeployments, isError: isErrorDeployments, isFetching, refetch: refetchDeployments } = useQuery({
     queryKey: ['deployments'],
     queryFn: api.getDeployments,
     staleTime: QUERY_CONFIG.deployments.staleTime,
@@ -32,7 +32,7 @@ export default function Home() {
     },
   })
 
-  const { data: snapshots, isLoading: isLoadingSnapshots } = useQuery({
+  const { data: snapshots, isLoading: isLoadingSnapshots, isError: isErrorSnapshots, refetch: refetchSnapshots } = useQuery({
     queryKey: ['snapshots'],
     queryFn: api.getSnapshots,
     staleTime: QUERY_CONFIG.snapshots.staleTime,
@@ -91,18 +91,29 @@ export default function Home() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle>Active Deployments</CardTitle>
-            <RefreshButton onClick={() => refetch()} isLoading={isFetching} variant="outline" />
+            <RefreshButton onClick={() => refetchDeployments()} isLoading={isFetching} variant="outline" />
           </CardHeader>
           <CardContent>
             <ErrorBoundary>
-              <DeploymentsTable deployments={deployments} isLoading={isLoadingDeployments} />
+              <DeploymentsTable
+                deployments={deployments}
+                isLoading={isLoadingDeployments}
+                isError={isErrorDeployments}
+                onRetry={() => refetchDeployments()}
+                onDeployClick={() => setDeployDrawerOpen(true)}
+              />
             </ErrorBoundary>
           </CardContent>
         </Card>
 
         {/* Snapshots Panel */}
         <ErrorBoundary>
-          <SnapshotsPanel snapshots={snapshots} isLoading={isLoadingSnapshots} />
+          <SnapshotsPanel
+            snapshots={snapshots}
+            isLoading={isLoadingSnapshots}
+            isError={isErrorSnapshots}
+            onRetry={() => refetchSnapshots()}
+          />
         </ErrorBoundary>
       </main>
 

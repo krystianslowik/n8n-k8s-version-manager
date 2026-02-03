@@ -44,13 +44,17 @@ import type { Deployment } from '@/lib/types'
 import { getAgeSeconds, formatAgeFromDate } from '@/lib/format'
 import { CreateSnapshotDialog } from './create-snapshot-dialog'
 import { DeploymentDetailsDrawer } from './deployment-details-drawer'
+import { QueryErrorState } from '@/components/error-boundary'
 
 interface DeploymentsTableProps {
   deployments: Deployment[] | undefined
   isLoading: boolean
+  isError?: boolean
+  onRetry?: () => void
+  onDeployClick?: () => void
 }
 
-export function DeploymentsTable({ deployments, isLoading }: DeploymentsTableProps) {
+export function DeploymentsTable({ deployments, isLoading, isError, onRetry, onDeployClick }: DeploymentsTableProps) {
   const [deploymentToDelete, setDeploymentToDelete] = useState<Deployment | null>(null)
   const [deploymentToView, setDeploymentToView] = useState<Deployment | null>(null)
   const [deploymentToSnapshot, setDeploymentToSnapshot] = useState<Deployment | null>(null)
@@ -126,12 +130,19 @@ export function DeploymentsTable({ deployments, isLoading }: DeploymentsTablePro
                   </TableCell>
                 </TableRow>
               ))
+          ) : isError ? (
+            // Error state
+            <TableRow>
+              <TableCell colSpan={8} className="h-64">
+                <QueryErrorState message="Failed to load deployments" onRetry={onRetry} />
+              </TableCell>
+            </TableRow>
           ) : deployments?.length === 0 ? (
-            // Empty state - will enhance in next task
+            // Empty state
             <TableRow>
               <TableCell colSpan={8} className="h-64 text-center">
                 <p className="text-muted-foreground">No deployments found</p>
-                <Button className="mt-4">Deploy First Version</Button>
+                <Button className="mt-4" onClick={onDeployClick}>Deploy First Version</Button>
               </TableCell>
             </TableRow>
           ) : (

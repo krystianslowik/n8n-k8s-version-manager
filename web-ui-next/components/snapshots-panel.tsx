@@ -16,14 +16,17 @@ import { useState } from 'react'
 import { RestoreSnapshotDialog } from './restore-snapshot-dialog'
 import { UploadSnapshotDialog } from './upload-snapshot-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+import { QueryErrorState } from '@/components/error-boundary'
 import type { Snapshot } from '@/lib/types'
 
 interface SnapshotsPanelProps {
   snapshots: Snapshot[] | undefined
   isLoading: boolean
+  isError?: boolean
+  onRetry?: () => void
 }
 
-export function SnapshotsPanel({ snapshots, isLoading }: SnapshotsPanelProps) {
+export function SnapshotsPanel({ snapshots, isLoading, isError, onRetry }: SnapshotsPanelProps) {
   const [restoreSnapshot, setRestoreSnapshot] = useState<string | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
   const queryClient = useQueryClient()
@@ -98,6 +101,9 @@ export function SnapshotsPanel({ snapshots, isLoading }: SnapshotsPanelProps) {
                       </div>
                     ))}
                   </div>
+                ) : isError ? (
+                  // Error state
+                  <QueryErrorState message="Failed to load snapshots" onRetry={onRetry} />
                 ) : snapshots?.length === 0 ? (
                   // Empty state
                   <div className="flex flex-col items-center justify-center py-8 text-center">
