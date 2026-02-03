@@ -230,11 +230,18 @@ async def get_namespace_metadata_batch() -> Dict[str, Dict[str, Any]]:
     """Fetch all n8n namespace metadata using k8s module."""
     metadata = {}
     try:
-        namespaces = await k8s.list_namespaces(label_selector="app=n8n")
+        # List all namespaces and filter by name pattern (n8n-v* or n8n-*)
+        namespaces = await k8s.list_namespaces()
         for ns in namespaces:
             name = ns.metadata.name
+            # Only include n8n namespaces (n8n-v* pattern)
+            if not name.startswith('n8n-'):
+                continue
+            # Extract version from namespace name if possible
+            version_match = re.search(r'n8n-v(\d+)-(\d+)-(\d+)', name)
+            version = f"{version_match.group(1)}.{version_match.group(2)}.{version_match.group(3)}" if version_match else 'unknown'
             metadata[name] = {
-                'version': ns.metadata.labels.get('version', 'unknown') if ns.metadata.labels else 'unknown',
+                'version': version,
                 'created_at': ns.metadata.creation_timestamp.isoformat() if ns.metadata.creation_timestamp else None
             }
     except Exception:

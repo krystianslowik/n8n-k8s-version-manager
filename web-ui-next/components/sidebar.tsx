@@ -41,7 +41,7 @@ export function Sidebar() {
         {!collapsed && (
           <div>
             <h2 className="text-lg font-bold">n8n Manager</h2>
-            <p className="text-xs text-muted-foreground">Version 1.0</p>
+            <p className="text-xs text-muted-foreground">Version 1.1</p>
           </div>
         )}
         <Button

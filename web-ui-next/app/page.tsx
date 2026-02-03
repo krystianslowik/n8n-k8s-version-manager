@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Sidebar } from '@/components/sidebar'
 import { StatCard } from '@/components/stat-card'
 import { MemoryStatCard } from '@/components/memory-stat-card'
@@ -26,6 +26,24 @@ function formatLastUpdated(timestamp: number): string {
 
 export default function Home() {
   const [deployDrawerOpen, setDeployDrawerOpen] = useState(false)
+
+  // Keyboard shortcut: N to open deploy drawer
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in input/textarea or if modifier keys pressed
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+
+      if (e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        setDeployDrawerOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
   const { data: deployments, isLoading: isLoadingDeployments, isError: isErrorDeployments, isFetching, refetch: refetchDeployments, dataUpdatedAt } = useQuery({
     queryKey: ['deployments'],
     queryFn: api.getDeployments,
@@ -74,7 +92,7 @@ export default function Home() {
               {deployments?.length || 0} active deployments
             </p>
           </div>
-          <Button size="lg" onClick={() => setDeployDrawerOpen(true)}>
+          <Button size="lg" onClick={() => setDeployDrawerOpen(true)} title="Press N">
             <PlusIcon className="h-4 w-4 mr-2" />
             Deploy New Version
           </Button>
