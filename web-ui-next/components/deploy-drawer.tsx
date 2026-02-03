@@ -15,7 +15,6 @@ import {
   DrawerTitle,
 } from '@/components/ui/drawer'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -64,8 +63,6 @@ interface DeployDrawerProps {
 
 export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
   const [version, setVersion] = useState('')
-  const [customName, setCustomName] = useState('')
-  const [nameError, setNameError] = useState('')
   const [mode, setMode] = useState<'queue' | 'regular'>('queue')
   const [snapshot, setSnapshot] = useState('')
   const [versionPopoverOpen, setVersionPopoverOpen] = useState(false)
@@ -188,11 +185,10 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
     onSuccess: (data) => {
       if (data.success) {
         // Calculate namespace
-        const namespace = customName || `n8n-v${version.replace(/\./g, '-')}`
+        const namespace = `n8n-v${version.replace(/\./g, '-')}`
 
         onOpenChange(false)
         setVersion('')
-        setCustomName('')
         setHelmValues({})
         queryClient.invalidateQueries({ queryKey: ['deployments'] })
 
@@ -214,40 +210,10 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
     },
   })
 
-  const validateName = (value: string) => {
-    if (!value) {
-      setNameError('')
-      return true
-    }
-
-    const valid =
-      /^[a-z0-9-]+$/.test(value) &&
-      value.length <= 63 &&
-      /^[a-z0-9]/.test(value) &&
-      /[a-z0-9]$/.test(value)
-
-    if (!valid) {
-      setNameError(
-        'Must be lowercase alphanumeric + hyphens, max 63 chars, start/end with alphanumeric'
-      )
-      return false
-    }
-
-    setNameError('')
-    return true
-  }
-
   const handleDeploy = () => {
     if (!version) {
       toast.error('Version required', {
         description: 'Please enter a version number',
-      })
-      return
-    }
-
-    if (customName && !validateName(customName)) {
-      toast.error('Invalid name', {
-        description: 'Please fix the custom name validation errors',
       })
       return
     }
@@ -258,7 +224,6 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
     deployMutation.mutate({
       version,
       mode,
-      name: customName || undefined,
       snapshot: snapshot || undefined,
       helm_values: hasHelmValues ? helmValues : undefined,
     })
@@ -384,35 +349,6 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
               )}
             </div>
           </div>
-
-          {/* Advanced Options (Collapsible) */}
-          <Collapsible>
-            <CollapsibleTrigger className="flex items-center gap-2 text-sm hover:underline">
-              <ChevronRightIcon className="h-4 w-4 transition-transform data-[state=open]:rotate-90" />
-              Advanced Options
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-4 space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="customName">Custom Name (optional)</Label>
-                <Input
-                  id="customName"
-                  placeholder="my-custom-deployment"
-                  value={customName}
-                  onChange={(e) => {
-                    setCustomName(e.target.value)
-                    validateName(e.target.value)
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Leave blank for auto-generated name (n8n-v
-                  {version.replace(/\./g, '-') || '{version}'})
-                </p>
-                {nameError && (
-                  <p className="text-xs text-destructive">{nameError}</p>
-                )}
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
 
           {/* Mode Selection */}
           <div className="space-y-2">
