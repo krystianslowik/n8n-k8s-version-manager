@@ -21,6 +21,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { LoaderIcon, AlertTriangleIcon } from 'lucide-react'
 import { toast } from 'sonner'
+import { addActivity } from '@/lib/activity'
 
 interface RestoreSnapshotDialogProps {
   snapshot: string | null
@@ -50,6 +51,7 @@ export function RestoreSnapshotDialog({
         toast.success('Snapshot restored', {
           description: `Database restored to ${selectedNamespace}`,
         })
+        addActivity('restored', `${snapshot} → ${selectedNamespace}`)
         queryClient.invalidateQueries({ queryKey: ['deployments'] })
         onOpenChange(false)
         setSelectedNamespace('')

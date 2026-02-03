@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { QUERY_CONFIG } from '@/lib/query-config'
 import { formatMemory, formatAge } from '@/lib/format'
+import { addActivity } from '@/lib/activity'
 import {
   Drawer,
   DrawerContent,
@@ -197,6 +198,9 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
 
         // Start tracking progress in background
         trackDeploymentProgress(namespace, version)
+
+        // Track activity
+        addActivity('deployed', `v${version}`)
       } else {
         toast.error('Deployment failed', {
           description: data.error || 'Unknown error',

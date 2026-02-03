@@ -80,7 +80,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar />
+      <Sidebar onDeployClick={() => setDeployDrawerOpen(true)} />
       <div className="flex-1 flex flex-col">
         <InfrastructureStatus />
         <main className="flex-1 p-8 space-y-6 overflow-y-auto">

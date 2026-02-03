@@ -38,6 +38,7 @@ import {
   AlertTriangleIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { addActivity } from '@/lib/activity'
 
 interface DeploymentDetailsDrawerProps {
   deployment: Deployment | null
@@ -86,6 +87,7 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
         toast.success('Snapshot restored', {
           description: `Database restored to ${namespace}`,
         })
+        addActivity('restored', `${selectedSnapshot} → ${namespace}`)
         queryClient.invalidateQueries({ queryKey: ['deployments'] })
         setSelectedSnapshot('')
         setShowRestoreWarning(false)

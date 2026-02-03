@@ -40,6 +40,7 @@ import {
   CameraIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { addActivity } from '@/lib/activity'
 import type { Deployment } from '@/lib/types'
 import { getAgeSeconds, formatAgeFromDate } from '@/lib/format'
 import { CreateSnapshotDialog } from './create-snapshot-dialog'
@@ -66,6 +67,7 @@ export function DeploymentsTable({ deployments, isLoading, isError, onRetry, onD
       toast.success('Deployment deleted', {
         description: `${namespace} has been removed`,
       })
+      addActivity('deleted', namespace)
       queryClient.invalidateQueries({ queryKey: ['deployments'] })
       setDeploymentToDelete(null)
     },

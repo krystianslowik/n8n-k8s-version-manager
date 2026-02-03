@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { LoaderIcon } from 'lucide-react'
 import { toast } from 'sonner'
+import { addActivity } from '@/lib/activity'
 import type { Deployment } from '@/lib/types'
 
 interface CreateSnapshotDialogProps {
@@ -40,6 +41,7 @@ export function CreateSnapshotDialog({
       toast.success('Snapshot created', {
         description: `Snapshot ${name || 'auto-named'} created from ${deployment?.namespace}`,
       })
+      addActivity('snapshot', name || `from ${deployment?.namespace}`)
       queryClient.invalidateQueries({ queryKey: ['named-snapshots'] })
       onOpenChange(false)
       setName('')

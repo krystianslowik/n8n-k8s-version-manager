@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from 'sonner'
+import { addActivity } from '@/lib/activity'
 import { LoaderIcon } from 'lucide-react'
 
 interface CreateNamedSnapshotDialogProps {
@@ -44,6 +45,7 @@ export function CreateNamedSnapshotDialog({
         toast.success('Snapshot created', {
           description: `Named snapshot "${name}" has been created`,
         })
+        addActivity('snapshot', name)
         queryClient.invalidateQueries({ queryKey: ['snapshots'] })
         onOpenChange(false)
         setName('')

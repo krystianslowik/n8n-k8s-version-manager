@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useSyncExternalStore } from 'react'
 
 /**
  * Debounce a value by the specified delay
@@ -17,4 +17,17 @@ export function useDebounce<T>(value: T, delay: number): T {
   }, [value, delay])
 
   return debouncedValue
+}
+
+import { getActivities, subscribeToActivities, type ActivityItem } from './activity'
+
+/**
+ * Subscribe to activity feed with localStorage persistence
+ */
+export function useActivity(): ActivityItem[] {
+  return useSyncExternalStore(
+    subscribeToActivities,
+    getActivities,
+    () => [] // Server snapshot
+  )
 }
