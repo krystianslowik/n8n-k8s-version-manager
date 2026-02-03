@@ -1,10 +1,17 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
-import { QUERY_CONFIG } from '@/lib/query-config'
-import type { Deployment, K8sEvent, PodStatus, PodLogs, Snapshot } from '@/lib/types'
+import { useQueryClient } from '@tanstack/react-query'
+import {
+  useNamespacePods,
+  useDeploymentEvents,
+  useNamespaceLogs,
+  useDeploymentConfig,
+  useSnapshots,
+  useRestoreSnapshot,
+} from '@/lib/grpc-hooks'
+import type { PodStatus, ContainerStatus } from '@/lib/grpc-client'
+import type { Deployment } from '@/lib/types'
 import {
   Sheet,
   SheetContent,
@@ -80,38 +87,26 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
   const [showRestoreWarning, setShowRestoreWarning] = useState(false)
   const queryClient = useQueryClient()
 
-  const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['pods', namespace],
-    queryFn: () => api.getNamespacePods(namespace),
-    staleTime: QUERY_CONFIG.pods.staleTime,
-    refetchInterval: enabled ? QUERY_CONFIG.pods.refetchInterval : false, // Only poll when tab is active
+  const { data: pods, isLoading, refetch, isFetching } = useNamespacePods(namespace, {
+    staleTime: 5_000,
+    refetchInterval: enabled ? 5_000 : false,
     enabled,
   })
 
   // Snapshots are prefetched on page load, so no enabled check needed
-  const { data: snapshotsData, isLoading: snapshotsLoading } = useQuery({
-    queryKey: ['snapshots'],
-    queryFn: api.getSnapshots,
-    staleTime: QUERY_CONFIG.snapshots.staleTime,
+  const { data: snapshots, isLoading: snapshotsLoading } = useSnapshots({
+    staleTime: 30_000,
   })
 
-  const restoreMutation = useMutation({
-    mutationFn: (params: { snapshot: string; namespace: string }) =>
-      api.restoreToDeployment(params),
-    onSuccess: (data) => {
-      if (data.success) {
-        toast.success('Snapshot restored', {
-          description: `Database restored to ${namespace}`,
-        })
-        addActivity('restored', `${selectedSnapshot} → ${namespace}`)
-        queryClient.invalidateQueries({ queryKey: ['deployments'] })
-        setSelectedSnapshot('')
-        setShowRestoreWarning(false)
-      } else {
-        toast.error('Restore failed', {
-          description: data.error || 'Unknown error',
-        })
-      }
+  const { restore, isRestoring } = useRestoreSnapshot({
+    onSuccess: () => {
+      toast.success('Snapshot restored', {
+        description: `Database restored to ${namespace}`,
+      })
+      addActivity('restored', `${selectedSnapshot} → ${namespace}`)
+      queryClient.invalidateQueries({ queryKey: ['grpc', 'deployments'] })
+      setSelectedSnapshot('')
+      setShowRestoreWarning(false)
     },
     onError: (error: Error) => {
       toast.error('Restore failed', {
@@ -122,7 +117,7 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
 
   const handleRestore = () => {
     if (selectedSnapshot) {
-      restoreMutation.mutate({ snapshot: selectedSnapshot, namespace })
+      restore({ snapshotName: selectedSnapshot, targetNamespace: namespace })
     }
   }
 
@@ -139,8 +134,8 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
     )
   }
 
-  const pods = data?.pods || []
-  const snapshots = snapshotsData || []
+  const podList = pods || []
+  const snapshotList = snapshots || []
 
   return (
     <div className="space-y-6">
@@ -148,18 +143,18 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
       <div className="space-y-3">
         <div className="flex justify-between items-center">
           <span className="text-sm text-muted-foreground">
-            {pods.length} pod{pods.length !== 1 ? 's' : ''}
+            {podList.length} pod{podList.length !== 1 ? 's' : ''}
           </span>
           <RefreshButton onClick={() => refetch()} isLoading={isFetching} />
         </div>
 
-        {pods.length === 0 ? (
+        {podList.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             No pods found
           </div>
         ) : (
           <div className="space-y-3">
-            {pods.map((pod: PodStatus) => (
+            {podList.map((pod: PodStatus) => (
               <div key={pod.name} className="border rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
@@ -178,7 +173,7 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
                   {pod.phase}
                 </Badge>
               </div>
-              {pod.containers.map((container) => (
+              {pod.containers.map((container: ContainerStatus) => (
                 <div
                   key={container.name}
                   className="ml-6 flex items-center gap-2 text-sm text-muted-foreground"
@@ -191,11 +186,11 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
                   <span>{container.name}</span>
                   <span className="text-xs">
                     ({container.state}
-                    {container.state_detail && `: ${container.state_detail}`})
+                    {container.stateDetail && `: ${container.stateDetail}`})
                   </span>
-                  {container.restart_count > 0 && (
+                  {container.restartCount > 0 && (
                     <Badge variant="outline" className="text-xs">
-                      {container.restart_count} restart{container.restart_count !== 1 ? 's' : ''}
+                      {container.restartCount} restart{container.restartCount !== 1 ? 's' : ''}
                     </Badge>
                   )}
                 </div>
@@ -220,7 +215,7 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
                 <LoaderIcon className="h-4 w-4 animate-spin" />
                 Loading snapshots...
               </div>
-            ) : snapshots.length === 0 ? (
+            ) : snapshotList.length === 0 ? (
               <div className="text-sm text-muted-foreground">
                 No snapshots available
               </div>
@@ -234,20 +229,20 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
                     <SelectValue placeholder="Select snapshot to restore..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {snapshots.map((snapshot: Snapshot) => (
-                      <SelectItem key={snapshot.filename} value={snapshot.filename}>
-                        {snapshot.name || snapshot.filename}
+                    {snapshotList.map((snapshot) => (
+                      <SelectItem key={snapshot.name} value={snapshot.name}>
+                        {snapshot.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <Button
                   onClick={handleRestore}
-                  disabled={!selectedSnapshot || restoreMutation.isPending}
+                  disabled={!selectedSnapshot || isRestoring}
                   variant="destructive"
                   size="sm"
                 >
-                  {restoreMutation.isPending ? (
+                  {isRestoring ? (
                     <>
                       <LoaderIcon className="h-4 w-4 mr-1 animate-spin" />
                       Restoring...
@@ -275,11 +270,9 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
 }
 
 function EventsTab({ namespace, enabled }: { namespace: string; enabled: boolean }) {
-  const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['events', namespace],
-    queryFn: () => api.getNamespaceEvents(namespace),
-    staleTime: QUERY_CONFIG.events.staleTime,
-    refetchInterval: enabled ? QUERY_CONFIG.events.refetchInterval : false, // Only poll when tab is active
+  const { data: events, isLoading, refetch, isFetching } = useDeploymentEvents(namespace, 50, {
+    staleTime: 5_000,
+    refetchInterval: enabled ? 5_000 : false,
     enabled,
   })
 
@@ -296,26 +289,34 @@ function EventsTab({ namespace, enabled }: { namespace: string; enabled: boolean
     )
   }
 
-  const events = data?.events || []
+  const eventList = events || []
+
+  // Helper to format proto timestamp
+  const formatEventTime = (event: typeof eventList[number]) => {
+    if (event.lastTimestamp) {
+      return formatRelativeTime(new Date(Number(event.lastTimestamp.seconds) * 1000).toISOString())
+    }
+    return '-'
+  }
 
   return (
     <div className="space-y-3">
       <div className="flex justify-between items-center">
         <span className="text-sm text-muted-foreground">
-          {events.length} event{events.length !== 1 ? 's' : ''}
+          {eventList.length} event{eventList.length !== 1 ? 's' : ''}
         </span>
         <RefreshButton onClick={() => refetch()} isLoading={isFetching} />
       </div>
 
-      {events.length === 0 ? (
+      {eventList.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
           No events found
         </div>
       ) : (
         <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-          {events.map((event: K8sEvent, i: number) => (
+          {eventList.map((event, i: number) => (
             <div
-              key={`${event.timestamp}-${i}`}
+              key={`${event.reason}-${i}`}
               className="flex items-start gap-2 text-sm border-l-2 pl-2 py-1"
               style={{
                 borderColor: event.type === 'Warning' ? 'rgb(234, 179, 8)' : 'rgb(34, 197, 94)',
@@ -323,7 +324,7 @@ function EventsTab({ namespace, enabled }: { namespace: string; enabled: boolean
             >
               <div className="flex items-center gap-1 text-muted-foreground min-w-[60px]">
                 <ClockIcon className="h-3 w-3" />
-                <span className="text-xs">{formatRelativeTime(event.timestamp)}</span>
+                <span className="text-xs">{formatEventTime(event)}</span>
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
@@ -334,7 +335,7 @@ function EventsTab({ namespace, enabled }: { namespace: string; enabled: boolean
                     {event.reason}
                   </Badge>
                   <span className="text-xs text-muted-foreground">
-                    {event.object.kind}/{event.object.name}
+                    {event.object}
                   </span>
                   {event.count > 1 && (
                     <span className="text-xs text-muted-foreground">
@@ -361,32 +362,25 @@ function LogsTab({ namespace, enabled }: { namespace: string; enabled: boolean }
   const [selectedPod, setSelectedPod] = useState<string>(ALL_PODS)
   const [selectedContainer, setSelectedContainer] = useState<string>(ALL_CONTAINERS)
 
-  const { data: podsData } = useQuery({
-    queryKey: ['pods', namespace],
-    queryFn: () => api.getNamespacePods(namespace),
+  const { data: pods } = useNamespacePods(namespace, {
     enabled, // Reuse pods data from StatusTab if already fetched
   })
 
   const actualPod = selectedPod === ALL_PODS ? undefined : selectedPod
   const actualContainer = selectedContainer === ALL_CONTAINERS ? undefined : selectedContainer
 
-  const { data: logsData, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['logs', namespace, actualPod, actualContainer],
-    queryFn: () =>
-      api.getNamespaceLogs(
-        namespace,
-        actualPod,
-        actualContainer
-      ),
-    staleTime: QUERY_CONFIG.logs.staleTime,
-    refetchInterval: enabled ? QUERY_CONFIG.logs.refetchInterval : false, // Only poll when tab is active
+  const { data: logs, isLoading, refetch, isFetching } = useNamespaceLogs(namespace, {
+    podName: actualPod,
+    container: actualContainer,
+    staleTime: 5_000,
+    refetchInterval: enabled ? 5_000 : false,
     enabled,
   })
 
-  const pods = podsData?.pods || []
-  const logs = logsData?.logs || []
+  const podList = pods || []
+  const logList = logs || []
 
-  const selectedPodData = pods.find((p) => p.name === selectedPod)
+  const selectedPodData = podList.find((p) => p.name === selectedPod)
   const containers = selectedPodData?.containers || []
 
   return (
@@ -401,7 +395,7 @@ function LogsTab({ namespace, enabled }: { namespace: string; enabled: boolean }
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL_PODS}>All pods</SelectItem>
-            {pods.map((pod) => (
+            {podList.map((pod) => (
               <SelectItem key={pod.name} value={pod.name}>
                 {pod.name}
               </SelectItem>
@@ -434,15 +428,15 @@ function LogsTab({ namespace, enabled }: { namespace: string; enabled: boolean }
           <Skeleton className="h-4 w-full" />
           <Skeleton className="h-4 w-3/4" />
         </div>
-      ) : logs.length === 0 ? (
+      ) : logList.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
           No logs available
         </div>
       ) : (
         <div className="space-y-4">
-          {logs.map((log: PodLogs) => (
+          {logList.map((log) => (
             <div key={log.pod} className="space-y-1">
-              {logs.length > 1 && (
+              {logList.length > 1 && (
                 <div className="text-xs font-medium text-muted-foreground">
                   {log.pod}
                   {log.container && ` / ${log.container}`}
@@ -552,10 +546,8 @@ function ConfigTab({ namespace, enabled }: { namespace: string; enabled: boolean
   const [searchQuery, setSearchQuery] = useState('')
   const [openCategories, setOpenCategories] = useState<string[]>(['database', 'n8n'])
 
-  const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['config', namespace],
-    queryFn: () => api.getNamespaceConfig(namespace),
-    staleTime: QUERY_CONFIG.config.staleTime,
+  const { data, isLoading, refetch, isFetching } = useDeploymentConfig(namespace, {
+    staleTime: 30_000,
     enabled,
   })
 

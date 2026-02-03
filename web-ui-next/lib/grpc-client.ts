@@ -12,6 +12,7 @@ export type {
   Deployment,
   DeploymentPhase,
   PodStatus,
+  ContainerStatus,
   Snapshot,
   ResourceUsage,
 } from './generated/n8n_manager/v1/common_pb'
@@ -34,6 +35,11 @@ export type {
   GetEventsRequest,
   GetEventsResponse,
   Event,
+  GetPodsRequest,
+  GetPodsResponse,
+  GetLogsRequest,
+  GetLogsResponse,
+  PodLogs,
 } from './generated/n8n_manager/v1/version_pb'
 
 export type {

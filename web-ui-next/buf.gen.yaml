@@ -3,6 +3,3 @@ plugins:
   - local: protoc-gen-es
     out: lib/generated
     opt: target=ts
-  - local: protoc-gen-connect-es
-    out: lib/generated
-    opt: target=ts

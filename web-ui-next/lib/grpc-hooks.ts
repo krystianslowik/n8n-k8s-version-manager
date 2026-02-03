@@ -19,6 +19,7 @@ import {
 import type {
   Deployment,
   Snapshot,
+  PodStatus,
 } from './generated/n8n_manager/v1/common_pb'
 
 import type {
@@ -27,6 +28,9 @@ import type {
   LogEntry,
   Event,
   GetConfigResponse,
+  GetPodsResponse,
+  GetLogsResponse,
+  PodLogs,
 } from './generated/n8n_manager/v1/version_pb'
 
 import type {
@@ -50,7 +54,9 @@ import type {
 export const grpcQueryKeys = {
   deployments: ['grpc', 'deployments'] as const,
   deployment: (namespace: string) => ['grpc', 'deployment', namespace] as const,
-  deploymentLogs: (namespace: string) => ['grpc', 'deployment', namespace, 'logs'] as const,
+  deploymentPods: (namespace: string) => ['grpc', 'deployment', namespace, 'pods'] as const,
+  deploymentLogs: (namespace: string, pod?: string, container?: string) =>
+    ['grpc', 'deployment', namespace, 'logs', pod, container] as const,
   deploymentEvents: (namespace: string) => ['grpc', 'deployment', namespace, 'events'] as const,
   deploymentConfig: (namespace: string) => ['grpc', 'deployment', namespace, 'config'] as const,
   snapshots: ['grpc', 'snapshots'] as const,
@@ -401,6 +407,55 @@ export function useDeploymentConfig(
     enabled: !!namespace,
     staleTime: 30_000, // Config changes less frequently
     ...options,
+  })
+}
+
+/**
+ * Fetch namespace pods with detailed container info
+ */
+export function useNamespacePods(
+  namespace: string,
+  options?: Omit<UseQueryOptions<PodStatus[], Error>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery({
+    queryKey: grpcQueryKeys.deploymentPods(namespace),
+    queryFn: async () => {
+      const response = await versionClient.getPods({ namespace })
+      return response.pods
+    },
+    enabled: !!namespace,
+    staleTime: 5_000,
+    ...options,
+  })
+}
+
+/**
+ * Fetch namespace logs (one-shot, non-streaming)
+ */
+export function useNamespaceLogs(
+  namespace: string,
+  options?: {
+    podName?: string
+    container?: string
+    tailLines?: number
+  } & Omit<UseQueryOptions<PodLogs[], Error>, 'queryKey' | 'queryFn'>
+) {
+  const { podName, container, tailLines, ...queryOptions } = options ?? {}
+
+  return useQuery({
+    queryKey: grpcQueryKeys.deploymentLogs(namespace, podName, container),
+    queryFn: async () => {
+      const response = await versionClient.getLogs({
+        namespace,
+        podName,
+        container,
+        tailLines,
+      })
+      return response.logs
+    },
+    enabled: !!namespace,
+    staleTime: 5_000,
+    ...queryOptions,
   })
 }
 

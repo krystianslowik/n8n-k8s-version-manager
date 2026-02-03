@@ -24,12 +24,23 @@ message DeploymentPhase {
   repeated PodStatus pods = 3;
 }
 
+// ContainerStatus represents the status of a container within a pod
+message ContainerStatus {
+  string name = 1;
+  bool ready = 2;
+  string state = 3;  // running, waiting, terminated, unknown
+  optional string state_detail = 4;
+  int32 restart_count = 5;
+}
+
 // PodStatus represents the status of a single pod
 message PodStatus {
   string name = 1;
   string phase = 2;
   bool ready = 3;
   int32 restart_count = 4;
+  repeated ContainerStatus containers = 5;
+  optional string created = 6;
 }
 
 // Snapshot represents a database snapshot

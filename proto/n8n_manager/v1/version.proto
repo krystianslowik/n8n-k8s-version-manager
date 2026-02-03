@@ -26,11 +26,17 @@ service VersionService {
   // Stream logs from a deployment (server streaming)
   rpc StreamLogs(StreamLogsRequest) returns (stream LogEntry);
 
+  // Get logs from a deployment (one-shot, for non-streaming use)
+  rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
+
   // Get deployment configuration
   rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
 
   // Get deployment events
   rpc GetEvents(GetEventsRequest) returns (GetEventsResponse);
+
+  // Get pods in a deployment namespace
+  rpc GetPods(GetPodsRequest) returns (GetPodsResponse);
 }
 
 // ListDeploymentsRequest is the request for listing deployments
@@ -138,4 +144,35 @@ message Event {
   google.protobuf.Timestamp first_timestamp = 5;
   google.protobuf.Timestamp last_timestamp = 6;
   int32 count = 7;
+}
+
+// GetPodsRequest requests pods in a namespace
+message GetPodsRequest {
+  string namespace = 1;
+}
+
+// GetPodsResponse contains detailed pod information
+message GetPodsResponse {
+  repeated PodStatus pods = 1;
+}
+
+// GetLogsRequest requests logs (one-shot, not streaming)
+message GetLogsRequest {
+  string namespace = 1;
+  optional string pod_name = 2;
+  optional string container = 3;
+  optional int32 tail_lines = 4;
+}
+
+// PodLogs contains logs for a single pod/container
+message PodLogs {
+  string pod = 1;
+  optional string container = 2;
+  string logs = 3;
+  optional string error = 4;
+}
+
+// GetLogsResponse contains logs from pods
+message GetLogsResponse {
+  repeated PodLogs logs = 1;
 }

@@ -673,3 +673,111 @@ class VersionServicer(version_pb2_grpc.VersionServiceServicer):
         except Exception as e:
             logger.error(f"GetEvents error: {e}")
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
+
+    async def GetPods(
+        self,
+        request: version_pb2.GetPodsRequest,
+        context: grpc.aio.ServicerContext
+    ) -> version_pb2.GetPodsResponse:
+        """Get detailed pod information for a namespace."""
+        namespace = request.namespace
+
+        try:
+            if not await k8s.namespace_exists(namespace):
+                await context.abort(grpc.StatusCode.NOT_FOUND, f"Namespace {namespace} not found")
+
+            pods = await k8s.list_pods(namespace=namespace)
+            pods_data = [k8s.pod_to_dict(p) for p in pods]
+
+            pod_statuses = []
+            for pod in pods_data:
+                # Convert containers to proto
+                containers = []
+                for c in pod.get("containers", []):
+                    container = common_pb2.ContainerStatus(
+                        name=c.get("name", ""),
+                        ready=c.get("ready", False),
+                        state=c.get("state", "unknown"),
+                        restart_count=c.get("restart_count", 0)
+                    )
+                    if c.get("state_detail"):
+                        container.state_detail = c["state_detail"]
+                    containers.append(container)
+
+                pod_status = common_pb2.PodStatus(
+                    name=pod.get("name", ""),
+                    phase=pod.get("phase", "Unknown"),
+                    ready=all(c.get("ready", False) for c in pod.get("containers", [])),
+                    restart_count=sum(c.get("restart_count", 0) for c in pod.get("containers", [])),
+                    containers=containers
+                )
+                pod_statuses.append(pod_status)
+
+            return version_pb2.GetPodsResponse(pods=pod_statuses)
+
+        except grpc.aio.AbortError:
+            raise
+        except Exception as e:
+            logger.error(f"GetPods error: {e}")
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
+
+    async def GetLogs(
+        self,
+        request: version_pb2.GetLogsRequest,
+        context: grpc.aio.ServicerContext
+    ) -> version_pb2.GetLogsResponse:
+        """Get logs from pods (one-shot, non-streaming)."""
+        namespace = request.namespace
+        pod_name = request.pod_name if request.HasField('pod_name') else None
+        container = request.container if request.HasField('container') else None
+        tail_lines = request.tail_lines if request.HasField('tail_lines') else 100
+
+        try:
+            if not await k8s.namespace_exists(namespace):
+                await context.abort(grpc.StatusCode.NOT_FOUND, f"Namespace {namespace} not found")
+
+            logs_list = []
+
+            if pod_name:
+                # Get logs from specific pod
+                try:
+                    logs = await k8s.get_pod_logs(namespace, pod_name, container, tail_lines)
+                    logs_list.append(version_pb2.PodLogs(
+                        pod=pod_name,
+                        container=container or "",
+                        logs=logs
+                    ))
+                except Exception as e:
+                    logs_list.append(version_pb2.PodLogs(
+                        pod=pod_name,
+                        container=container or "",
+                        logs="",
+                        error=str(e)
+                    ))
+            else:
+                # Get logs from all pods
+                pods = await k8s.list_pods(namespace=namespace)
+                for p in pods:
+                    pname = p.metadata.name
+                    try:
+                        logs = await k8s.get_pod_logs(namespace, pname, container, tail_lines)
+                        logs_list.append(version_pb2.PodLogs(
+                            pod=pname,
+                            container=container or "",
+                            logs=logs
+                        ))
+                    except Exception as e:
+                        logs_list.append(version_pb2.PodLogs(
+                            pod=pname,
+                            container=container or "",
+                            logs="",
+                            error=str(e)
+                        ))
+
+            return version_pb2.GetLogsResponse(logs=logs_list)
+
+        except grpc.aio.AbortError:
+            raise
+        except Exception as e:
+            logger.error(f"GetLogs error: {e}")
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
