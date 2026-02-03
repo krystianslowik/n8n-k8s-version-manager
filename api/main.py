@@ -1,9 +1,20 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+import k8s
 
-app = FastAPI(title="n8n Version Manager API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: nothing needed, client lazy-initializes
+    yield
+    # Shutdown: close K8s client
+    await k8s.close_client()
+
+
+app = FastAPI(title="n8n Version Manager API", lifespan=lifespan)
 
 
 # Cache-Control middleware for API responses
@@ -52,23 +63,10 @@ app.add_middleware(
 @app.get("/api/health")
 async def health_check():
     """Verify API can communicate with Kubernetes cluster."""
-    import subprocess
-    try:
-        result = subprocess.run(
-            ["kubectl", "cluster-info", "--request-timeout=2s"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        if result.returncode != 0:
-            return {"status": "degraded", "error": "Cannot reach Kubernetes cluster"}
+    if await k8s.check_cluster_health():
         return {"status": "ok"}
-    except subprocess.TimeoutExpired:
-        return {"status": "degraded", "error": "Kubernetes cluster timeout"}
-    except FileNotFoundError:
-        return {"status": "degraded", "error": "kubectl not found"}
-    except Exception as e:
-        return {"status": "degraded", "error": str(e)}
+    return {"status": "degraded", "error": "Cannot reach Kubernetes cluster"}
+
 
 from versions import router as versions_router
 from snapshots import router as snapshots_router
