@@ -164,3 +164,54 @@ async def get_pod_logs(
         if e.status == 404:
             return f"Pod {pod_name} not found"
         return f"Error fetching logs: {e.reason}"
+
+
+# =============================================================================
+# Event and ConfigMap Operations
+# =============================================================================
+
+async def list_events(namespace: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """List events in a namespace, sorted by timestamp."""
+    api = await get_client()
+    v1 = client.CoreV1Api(api)
+    try:
+        result = await v1.list_namespaced_event(namespace=namespace)
+        events = []
+        # Sort by last timestamp descending
+        sorted_events = sorted(
+            result.items,
+            key=lambda e: e.last_timestamp or e.event_time or "",
+            reverse=True
+        )[:limit]
+
+        for event in sorted_events:
+            timestamp = event.last_timestamp or event.event_time
+            events.append({
+                "type": event.type,
+                "reason": event.reason,
+                "message": event.message,
+                "timestamp": timestamp.isoformat() if timestamp else None,
+                "count": event.count or 1,
+                "object": {
+                    "kind": event.involved_object.kind if event.involved_object else None,
+                    "name": event.involved_object.name if event.involved_object else None,
+                }
+            })
+        return events
+    except ApiException as e:
+        if e.status == 404:
+            return []
+        handle_api_exception(e, "events")
+
+
+async def get_configmap(namespace: str, name: str) -> Dict[str, str]:
+    """Get a ConfigMap's data."""
+    api = await get_client()
+    v1 = client.CoreV1Api(api)
+    try:
+        cm = await v1.read_namespaced_config_map(name=name, namespace=namespace)
+        return cm.data or {}
+    except ApiException as e:
+        if e.status == 404:
+            return {}
+        handle_api_exception(e, f"configmap {name}")
