@@ -6,23 +6,24 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import tempfile
-from typing import List, Dict, Any
+from typing import List, Dict, Any, AsyncIterator
 
-from grpclib import GRPCError, Status
+# Add generated directory to Python path for proto imports
+_generated_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'generated')
+if _generated_dir not in sys.path:
+    sys.path.insert(0, _generated_dir)
+
+import grpc
+from google.protobuf import timestamp_pb2
 
 import k8s
-
-# Placeholder imports - will be generated from protos
-# from generated.n8n_manager.v1 import snapshot_pb2
-# from generated.n8n_manager.v1.snapshot_grpc import SnapshotServiceBase
+from n8n_manager.v1 import snapshot_pb2
+from n8n_manager.v1 import snapshot_pb2_grpc
+from n8n_manager.v1 import common_pb2
 
 logger = logging.getLogger(__name__)
-
-
-class SnapshotServiceBase:
-    """Placeholder base class - will be replaced by generated code."""
-    pass
 
 
 def parse_snapshots_output(output: str, snapshot_type: str = "all") -> List[Dict[str, Any]]:
@@ -53,7 +54,7 @@ def parse_snapshots_output(output: str, snapshot_type: str = "all") -> List[Dict
                 "filename": filename,
                 "timestamp": timestamp,
                 "type": "auto",
-                "name": None
+                "name": filename.replace('.sql', '')
             })
         else:
             # Named snapshot
@@ -74,29 +75,34 @@ def parse_snapshots_output(output: str, snapshot_type: str = "all") -> List[Dict
     return snapshots
 
 
-class SnapshotService(SnapshotServiceBase):
+def _create_snapshot(snapshot_data: Dict) -> common_pb2.Snapshot:
+    """Create a Snapshot proto message from dict."""
+    return common_pb2.Snapshot(
+        name=snapshot_data.get("name", ""),
+        source_namespace=snapshot_data.get("source_namespace", ""),
+        size_bytes=snapshot_data.get("size_bytes", 0)
+    )
+
+
+class SnapshotServicer(snapshot_pb2_grpc.SnapshotServiceServicer):
     """
     gRPC service for database snapshot management.
 
     Provides:
-    - ListSnapshots: List all or filtered snapshots
-    - CreateSnapshot: Create auto timestamped snapshot
-    - CreateNamedSnapshot: Create named snapshot
-    - DeleteSnapshot: Delete a snapshot by filename
-    - RestoreSnapshot: Restore to shared database
-    - RestoreToDeployment: Restore to specific deployment's isolated DB
-    - UploadSnapshot: Upload SQL file as snapshot
+    - List: List all or filtered snapshots
+    - Create: Create named snapshot (streaming progress)
+    - Delete: Delete a snapshot by name
+    - Restore: Restore snapshot to deployment (streaming progress)
     """
 
-    async def ListSnapshots(self, stream) -> None:
+    async def List(
+        self,
+        request: snapshot_pb2.ListSnapshotsRequest,
+        context: grpc.aio.ServicerContext
+    ) -> snapshot_pb2.ListSnapshotsResponse:
         """List all database snapshots."""
-        request = await stream.recv_message()
-        snapshot_type = getattr(request, 'type', 'all')  # all, named, auto
-
         try:
             cmd = ["/workspace/scripts/list-snapshots.sh"]
-            if snapshot_type == "named":
-                cmd.append("--named-only")
 
             result = subprocess.run(
                 cmd,
@@ -107,89 +113,132 @@ class SnapshotService(SnapshotServiceBase):
 
             if result.returncode != 0:
                 # Infrastructure not ready, return empty list
-                return {"snapshots": []}
+                return snapshot_pb2.ListSnapshotsResponse(snapshots=[])
 
-            snapshots = parse_snapshots_output(result.stdout, snapshot_type)
-            return {"snapshots": snapshots}
+            snapshots_data = parse_snapshots_output(result.stdout)
+
+            snapshots = []
+            for s in snapshots_data:
+                snapshot = common_pb2.Snapshot(
+                    name=s.get("name", ""),
+                    source_namespace="",  # Not available from list output
+                    size_bytes=0  # Not available from list output
+                )
+                snapshots.append(snapshot)
+
+            return snapshot_pb2.ListSnapshotsResponse(snapshots=snapshots)
 
         except FileNotFoundError:
-            raise GRPCError(Status.INTERNAL, "list-snapshots.sh script not found")
+            await context.abort(grpc.StatusCode.INTERNAL, "list-snapshots.sh script not found")
         except Exception as e:
-            logger.error(f"ListSnapshots error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
+            logger.error(f"List error: {e}")
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
-    async def CreateSnapshot(self, stream) -> None:
-        """Create an auto-timestamped database snapshot."""
-        try:
-            result = subprocess.run(
-                ["/workspace/scripts/create-snapshot.sh"],
-                capture_output=True,
-                text=True,
-                cwd="/workspace"
-            )
-
-            if result.returncode != 0:
-                error_msg = result.stderr.strip() or result.stdout.strip() or "Snapshot creation failed"
-                raise GRPCError(Status.INTERNAL, error_msg)
-
-            return {
-                "success": True,
-                "message": "Snapshot creation started"
-            }
-
-        except GRPCError:
-            raise
-        except Exception as e:
-            logger.error(f"CreateSnapshot error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
-
-    async def CreateNamedSnapshot(self, stream) -> None:
-        """Create a named database snapshot."""
-        request = await stream.recv_message()
+    async def Create(
+        self,
+        request: snapshot_pb2.CreateSnapshotRequest,
+        context: grpc.aio.ServicerContext
+    ) -> AsyncIterator[snapshot_pb2.CreateSnapshotResponse]:
+        """Create a named database snapshot with progress streaming."""
         name = request.name
-        source = getattr(request, 'source', 'shared')  # "shared" or namespace name
+        source_namespace = request.source_namespace
 
         # Validate name
         if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', name):
-            raise GRPCError(Status.INVALID_ARGUMENT, "Invalid snapshot name format")
+            yield snapshot_pb2.CreateSnapshotResponse(
+                phase="failed",
+                message="Invalid snapshot name format",
+                completed=True,
+                success=False,
+                error="Invalid snapshot name format"
+            )
+            return
 
-        # Validate source if not shared
-        if source != "shared":
-            if not re.match(r'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$', source):
-                raise GRPCError(Status.INVALID_ARGUMENT, "Invalid namespace format")
+        # Validate source if specified
+        if source_namespace and not re.match(r'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$', source_namespace):
+            yield snapshot_pb2.CreateSnapshotResponse(
+                phase="failed",
+                message="Invalid namespace format",
+                completed=True,
+                success=False,
+                error="Invalid namespace format"
+            )
+            return
 
         try:
+            yield snapshot_pb2.CreateSnapshotResponse(
+                phase="starting",
+                message=f"Creating snapshot '{name}'...",
+                completed=False,
+                success=False
+            )
+
             cmd = ["/workspace/scripts/create-named-snapshot.sh", name]
-            if source != "shared":
-                cmd.extend(["--source", source])
+            if source_namespace:
+                cmd.extend(["--source", source_namespace])
+
+            yield snapshot_pb2.CreateSnapshotResponse(
+                phase="creating",
+                message="Running pg_dump...",
+                completed=False,
+                success=False
+            )
 
             result = subprocess.run(cmd, capture_output=True, text=True, cwd="/workspace")
 
             if result.returncode != 0:
                 error_msg = result.stderr.strip() or result.stdout.strip() or "Snapshot creation failed"
-                raise GRPCError(Status.INTERNAL, error_msg)
+                yield snapshot_pb2.CreateSnapshotResponse(
+                    phase="failed",
+                    message=error_msg,
+                    completed=True,
+                    success=False,
+                    error=error_msg
+                )
+                return
 
-            return {
-                "success": True,
-                "message": f"Named snapshot '{name}' created"
-            }
+            snapshot = common_pb2.Snapshot(
+                name=name,
+                source_namespace=source_namespace or "shared",
+                size_bytes=0
+            )
 
-        except GRPCError:
-            raise
+            yield snapshot_pb2.CreateSnapshotResponse(
+                phase="completed",
+                message=f"Snapshot '{name}' created successfully",
+                completed=True,
+                success=True,
+                snapshot=snapshot
+            )
+
         except Exception as e:
-            logger.error(f"CreateNamedSnapshot error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
+            logger.error(f"Create error: {e}")
+            yield snapshot_pb2.CreateSnapshotResponse(
+                phase="failed",
+                message=str(e),
+                completed=True,
+                success=False,
+                error=str(e)
+            )
 
-    async def DeleteSnapshot(self, stream) -> None:
-        """Delete a snapshot by filename."""
-        request = await stream.recv_message()
-        filename = request.filename
+    async def Delete(
+        self,
+        request: snapshot_pb2.DeleteSnapshotRequest,
+        context: grpc.aio.ServicerContext
+    ) -> snapshot_pb2.DeleteSnapshotResponse:
+        """Delete a snapshot by name."""
+        name = request.name
+
+        # Validate name
+        if not name:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "Snapshot name is required")
+
+        # Build filename
+        filename = name if name.endswith('.sql') else f"{name}.sql"
 
         # Validate filename
-        if not filename.endswith('.sql'):
-            raise GRPCError(Status.INVALID_ARGUMENT, "Filename must end with .sql")
         if '..' in filename or '/' in filename:
-            raise GRPCError(Status.INVALID_ARGUMENT, "Invalid filename")
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "Invalid filename")
 
         try:
             result = subprocess.run(
@@ -202,137 +251,94 @@ class SnapshotService(SnapshotServiceBase):
 
             if result.returncode != 0:
                 error_msg = result.stderr.strip() or result.stdout.strip() or "Delete failed"
-                raise GRPCError(Status.INTERNAL, error_msg)
+                await context.abort(grpc.StatusCode.INTERNAL, error_msg)
 
-            return {
-                "success": True,
-                "message": f"Snapshot {filename} deleted"
-            }
+            return snapshot_pb2.DeleteSnapshotResponse(
+                success=True,
+                message=f"Snapshot {name} deleted"
+            )
 
-        except GRPCError:
+        except grpc.aio.AbortError:
             raise
         except Exception as e:
-            logger.error(f"DeleteSnapshot error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
+            logger.error(f"Delete error: {e}")
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
-    async def RestoreSnapshot(self, stream) -> None:
-        """Restore database from snapshot to shared database."""
-        request = await stream.recv_message()
-        snapshot = request.snapshot
+    async def Restore(
+        self,
+        request: snapshot_pb2.RestoreSnapshotRequest,
+        context: grpc.aio.ServicerContext
+    ) -> AsyncIterator[snapshot_pb2.RestoreSnapshotResponse]:
+        """Restore snapshot to a deployment with progress streaming."""
+        snapshot_name = request.snapshot_name
+        target_namespace = request.target_namespace
+
+        # Validate namespace
+        if target_namespace and not re.match(r'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$', target_namespace):
+            yield snapshot_pb2.RestoreSnapshotResponse(
+                phase="failed",
+                message="Invalid namespace format",
+                completed=True,
+                success=False,
+                error="Invalid namespace format"
+            )
+            return
 
         try:
+            yield snapshot_pb2.RestoreSnapshotResponse(
+                phase="starting",
+                message=f"Restoring snapshot '{snapshot_name}'...",
+                completed=False,
+                success=False
+            )
+
+            if target_namespace:
+                # Restore to specific deployment
+                cmd = ["/workspace/scripts/restore-to-deployment.sh", snapshot_name, target_namespace]
+            else:
+                # Restore to shared database
+                cmd = ["/workspace/scripts/restore-snapshot.sh", snapshot_name]
+
+            yield snapshot_pb2.RestoreSnapshotResponse(
+                phase="restoring",
+                message="Running pg_restore...",
+                completed=False,
+                success=False
+            )
+
             result = subprocess.run(
-                ["/workspace/scripts/restore-snapshot.sh", snapshot],
+                cmd,
                 capture_output=True,
                 text=True,
                 cwd="/workspace",
-                input="yes\n"
+                input="yes\n" if not target_namespace else None
             )
 
             if result.returncode != 0:
                 error_msg = result.stderr.strip() or result.stdout.strip() or "Restore failed"
-                raise GRPCError(Status.INTERNAL, error_msg)
+                yield snapshot_pb2.RestoreSnapshotResponse(
+                    phase="failed",
+                    message=error_msg,
+                    completed=True,
+                    success=False,
+                    error=error_msg
+                )
+                return
 
-            return {
-                "success": True,
-                "message": f"Snapshot {snapshot} restored"
-            }
-
-        except GRPCError:
-            raise
-        except Exception as e:
-            logger.error(f"RestoreSnapshot error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
-
-    async def RestoreToDeployment(self, stream) -> None:
-        """Restore snapshot to a specific deployment's isolated database."""
-        request = await stream.recv_message()
-        snapshot = request.snapshot
-        namespace = request.namespace
-
-        # Validate namespace
-        if not re.match(r'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$', namespace):
-            raise GRPCError(Status.INVALID_ARGUMENT, "Invalid namespace format")
-
-        try:
-            result = subprocess.run(
-                ["/workspace/scripts/restore-to-deployment.sh", snapshot, namespace],
-                capture_output=True,
-                text=True,
-                cwd="/workspace"
+            target = target_namespace if target_namespace else "shared database"
+            yield snapshot_pb2.RestoreSnapshotResponse(
+                phase="completed",
+                message=f"Snapshot '{snapshot_name}' restored to {target}",
+                completed=True,
+                success=True
             )
 
-            if result.returncode != 0:
-                error_msg = result.stderr.strip() or result.stdout.strip() or "Restore failed"
-                raise GRPCError(Status.INTERNAL, error_msg)
-
-            return {
-                "success": True,
-                "message": f"Snapshot {snapshot} restored to {namespace}"
-            }
-
-        except GRPCError:
-            raise
         except Exception as e:
-            logger.error(f"RestoreToDeployment error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
-
-    async def UploadSnapshot(self, stream) -> None:
-        """Upload a SQL file as a snapshot."""
-        request = await stream.recv_message()
-        name = request.name
-        content = request.content  # bytes
-
-        # Validate name
-        if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$', name):
-            raise GRPCError(Status.INVALID_ARGUMENT, "Invalid snapshot name format")
-
-        # Validate content
-        max_size = 500 * 1024 * 1024  # 500MB
-        if len(content) > max_size:
-            raise GRPCError(Status.INVALID_ARGUMENT, f"File too large. Maximum size is {max_size // (1024*1024)}MB")
-        if len(content) == 0:
-            raise GRPCError(Status.INVALID_ARGUMENT, "File is empty")
-
-        temp_file = None
-        try:
-            # Write to temp file
-            fd, temp_file = tempfile.mkstemp(suffix='.sql')
-            with os.fdopen(fd, 'wb') as f:
-                f.write(content)
-
-            # Find backup storage pod
-            pods = await k8s.list_pods(
-                namespace="n8n-system",
-                label_selector="app=backup-storage"
+            logger.error(f"Restore error: {e}")
+            yield snapshot_pb2.RestoreSnapshotResponse(
+                phase="failed",
+                message=str(e),
+                completed=True,
+                success=False,
+                error=str(e)
             )
-            if not pods:
-                raise GRPCError(Status.UNAVAILABLE, "Backup storage unavailable")
-
-            backup_pod = pods[0].metadata.name
-            dest_path = f"/backups/snapshots/{name}.sql"
-
-            # Copy file to storage
-            cp_result = subprocess.run(
-                ["kubectl", "cp", temp_file, f"n8n-system/{backup_pod}:{dest_path}"],
-                capture_output=True,
-                text=True
-            )
-
-            if cp_result.returncode != 0:
-                raise GRPCError(Status.INTERNAL, f"Failed to copy file to storage: {cp_result.stderr}")
-
-            return {
-                "success": True,
-                "message": f"Snapshot '{name}' uploaded successfully",
-                "filename": f"{name}.sql"
-            }
-
-        except GRPCError:
-            raise
-        except Exception as e:
-            logger.error(f"UploadSnapshot error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
-        finally:
-            if temp_file and os.path.exists(temp_file):
-                os.unlink(temp_file)

@@ -3,35 +3,53 @@ gRPC Infrastructure Service implementation.
 Handles health checks for shared infrastructure components.
 """
 import logging
+import os
+import sys
 from typing import Dict, Any
+from datetime import datetime
 
-from grpclib import GRPCError, Status
+# Add generated directory to Python path for proto imports
+_generated_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'generated')
+if _generated_dir not in sys.path:
+    sys.path.insert(0, _generated_dir)
+
+import grpc
+from google.protobuf import timestamp_pb2
 
 import k8s
-
-# Placeholder imports - will be generated from protos
-# from generated.n8n_manager.v1 import infrastructure_pb2
-# from generated.n8n_manager.v1.infrastructure_grpc import InfrastructureServiceBase
+from n8n_manager.v1 import infrastructure_pb2
+from n8n_manager.v1 import infrastructure_pb2_grpc
+from n8n_manager.v1 import common_pb2
 
 logger = logging.getLogger(__name__)
 
 
-class InfrastructureServiceBase:
-    """Placeholder base class - will be replaced by generated code."""
-    pass
+def _format_bytes(bytes_value: int) -> str:
+    """Format bytes to human-readable string."""
+    if bytes_value is None:
+        return "unknown"
+
+    for unit in ['B', 'Ki', 'Mi', 'Gi', 'Ti']:
+        if abs(bytes_value) < 1024.0:
+            return f"{bytes_value:.1f}{unit}"
+        bytes_value /= 1024.0
+    return f"{bytes_value:.1f}Pi"
 
 
-class InfrastructureService(InfrastructureServiceBase):
+class InfrastructureServicer(infrastructure_pb2_grpc.InfrastructureServiceServicer):
     """
     gRPC service for infrastructure health monitoring.
 
     Provides:
     - GetStatus: Check Redis and backup storage health
     - GetClusterResources: Get cluster memory/CPU usage
-    - CheckHealth: Simple health check endpoint
     """
 
-    async def GetStatus(self, stream) -> None:
+    async def GetStatus(
+        self,
+        request: infrastructure_pb2.GetInfrastructureStatusRequest,
+        context: grpc.aio.ServicerContext
+    ) -> infrastructure_pb2.GetInfrastructureStatusResponse:
         """Check Redis and backup storage health."""
         try:
             # Check Redis pod status
@@ -46,24 +64,44 @@ class InfrastructureService(InfrastructureServiceBase):
                 label_selector="app=backup-storage"
             )
 
-            status = {
-                "redis": {
-                    "status": "healthy" if redis_phase == "Running" else "unavailable",
-                    "phase": redis_phase or "unknown"
-                },
-                "backup": {
-                    "status": "healthy" if backup_phase == "Running" else "unavailable",
-                    "phase": backup_phase or "unknown"
-                }
-            }
+            # Build Redis component status
+            redis_healthy = redis_phase == "Running"
+            redis_status = infrastructure_pb2.ComponentStatus(
+                name="redis",
+                healthy=redis_healthy,
+                status="healthy" if redis_healthy else "unavailable",
+                message=f"Pod phase: {redis_phase or 'unknown'}",
+                details={"phase": redis_phase or "unknown"}
+            )
 
-            return status
+            # Build backup storage component status
+            backup_healthy = backup_phase == "Running"
+            backup_status = infrastructure_pb2.ComponentStatus(
+                name="backup-storage",
+                healthy=backup_healthy,
+                status="healthy" if backup_healthy else "unavailable",
+                message=f"Pod phase: {backup_phase or 'unknown'}",
+                details={"phase": backup_phase or "unknown"}
+            )
+
+            # Create response with timestamp
+            response = infrastructure_pb2.GetInfrastructureStatusResponse(
+                redis=redis_status,
+                backup_storage=backup_status
+            )
+            response.checked_at.GetCurrentTime()
+
+            return response
 
         except Exception as e:
             logger.error(f"GetStatus error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
-    async def GetClusterResources(self, stream) -> None:
+    async def GetClusterResources(
+        self,
+        request: infrastructure_pb2.GetClusterResourcesRequest,
+        context: grpc.aio.ServicerContext
+    ) -> infrastructure_pb2.GetClusterResourcesResponse:
         """Get cluster resource usage information."""
         try:
             # Get allocatable memory
@@ -73,51 +111,29 @@ class InfrastructureService(InfrastructureServiceBase):
             total_requests = await k8s.get_total_memory_requests()
 
             # Calculate usage percentage
-            usage_percent = 0
+            memory_usage_percent = 0.0
             if allocatable_memory and allocatable_memory > 0:
-                usage_percent = (total_requests / allocatable_memory) * 100
+                memory_usage_percent = (total_requests / allocatable_memory) * 100
 
-            resources = {
-                "allocatable_memory_bytes": allocatable_memory or 0,
-                "requested_memory_bytes": total_requests,
-                "memory_usage_percent": round(usage_percent, 2),
-                "allocatable_memory_human": _format_bytes(allocatable_memory) if allocatable_memory else "unknown",
-                "requested_memory_human": _format_bytes(total_requests),
-            }
+            # Build cluster summary
+            summary = infrastructure_pb2.ClusterSummary(
+                total_nodes=1,  # Docker Desktop typically has 1 node
+                ready_nodes=1,
+                total_cpu="",  # Not implemented yet
+                total_memory=_format_bytes(allocatable_memory) if allocatable_memory else "unknown",
+                used_cpu="",  # Not implemented yet
+                used_memory=_format_bytes(total_requests),
+                cpu_utilization_percent=0.0,  # Not implemented yet
+                memory_utilization_percent=round(memory_usage_percent, 2)
+            )
 
-            return resources
+            # For now, we return a simple summary without detailed node info
+            # Node resources can be added later if needed
+            return infrastructure_pb2.GetClusterResourcesResponse(
+                nodes=[],  # Could be populated with detailed node info
+                summary=summary
+            )
 
         except Exception as e:
             logger.error(f"GetClusterResources error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
-
-    async def CheckHealth(self, stream) -> None:
-        """Simple health check - verifies K8s API connectivity."""
-        try:
-            healthy = await k8s.check_cluster_health()
-
-            if not healthy:
-                raise GRPCError(Status.UNAVAILABLE, "Cannot connect to Kubernetes API")
-
-            return {
-                "healthy": True,
-                "message": "Kubernetes API is reachable"
-            }
-
-        except GRPCError:
-            raise
-        except Exception as e:
-            logger.error(f"CheckHealth error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
-
-
-def _format_bytes(bytes_value: int) -> str:
-    """Format bytes to human-readable string."""
-    if bytes_value is None:
-        return "unknown"
-
-    for unit in ['B', 'Ki', 'Mi', 'Gi', 'Ti']:
-        if abs(bytes_value) < 1024.0:
-            return f"{bytes_value:.1f}{unit}"
-        bytes_value /= 1024.0
-    return f"{bytes_value:.1f}Pi"
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))

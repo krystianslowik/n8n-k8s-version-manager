@@ -1,22 +1,36 @@
 """
 gRPC server entry point for n8n Kubernetes Version Manager.
 
-Uses grpclib for async gRPC support.
+Uses grpcio.aio for async gRPC support.
 Listens on 0.0.0.0:50051.
 """
 import asyncio
 import logging
+import os
 import signal
+import sys
 from typing import Optional
 
-from grpclib.server import Server
-from grpclib.utils import graceful_exit
+# Add generated directory to Python path for proto imports
+# The generated proto files import 'n8n_manager.v1' directly
+_generated_dir = os.path.join(os.path.dirname(__file__), 'generated')
+if _generated_dir not in sys.path:
+    sys.path.insert(0, _generated_dir)
+
+import grpc
+from grpc import aio
+
+# Import generated servicer registration functions
+from n8n_manager.v1 import version_pb2_grpc
+from n8n_manager.v1 import snapshot_pb2_grpc
+from n8n_manager.v1 import infrastructure_pb2_grpc
+from n8n_manager.v1 import available_versions_pb2_grpc
 
 # Import service implementations
-from services.version_service import VersionService
-from services.snapshot_service import SnapshotService
-from services.infrastructure_service import InfrastructureService
-from services.available_versions_service import AvailableVersionsService
+from services.version_service import VersionServicer
+from services.snapshot_service import SnapshotServicer
+from services.infrastructure_service import InfrastructureServicer
+from services.available_versions_service import AvailableVersionsServicer
 
 # Import k8s client for cleanup
 import k8s
@@ -33,41 +47,45 @@ HOST = '0.0.0.0'
 PORT = 50051
 
 
-async def create_server() -> Server:
-    """Create and configure the gRPC server with all services."""
-    # Instantiate all services
-    version_service = VersionService()
-    snapshot_service = SnapshotService()
-    infrastructure_service = InfrastructureService()
-    available_versions_service = AvailableVersionsService()
-
-    # Create server with all service handlers
-    # Note: Once proto files are generated, services will be passed as handlers
-    # server = Server([version_service, snapshot_service, infrastructure_service, available_versions_service])
-
-    # For now, create server with placeholder - will be updated when protos are generated
-    server = Server([
-        version_service,
-        snapshot_service,
-        infrastructure_service,
-        available_versions_service,
-    ])
-
-    return server
-
-
 async def serve() -> None:
     """Start the gRPC server and handle graceful shutdown."""
-    server = await create_server()
+    # Create async gRPC server
+    server = aio.server()
 
-    # Use graceful_exit context manager for clean shutdown
-    with graceful_exit([server]):
-        await server.start(HOST, PORT)
-        logger.info(f"gRPC server started on {HOST}:{PORT}")
+    # Add servicers to server
+    version_pb2_grpc.add_VersionServiceServicer_to_server(
+        VersionServicer(), server
+    )
+    snapshot_pb2_grpc.add_SnapshotServiceServicer_to_server(
+        SnapshotServicer(), server
+    )
+    infrastructure_pb2_grpc.add_InfrastructureServiceServicer_to_server(
+        InfrastructureServicer(), server
+    )
+    available_versions_pb2_grpc.add_AvailableVersionsServiceServicer_to_server(
+        AvailableVersionsServicer(), server
+    )
 
-        # Keep server running until shutdown signal
-        await server.wait_closed()
+    # Bind to port
+    listen_addr = f'{HOST}:{PORT}'
+    server.add_insecure_port(listen_addr)
 
+    logger.info(f"Starting gRPC server on {listen_addr}")
+    await server.start()
+    logger.info(f"gRPC server started on {listen_addr}")
+
+    # Setup graceful shutdown
+    async def shutdown():
+        logger.info("Shutting down gRPC server...")
+        await server.stop(grace=5)  # 5 second grace period
+
+    # Handle shutdown signals
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
+
+    # Wait for termination
+    await server.wait_for_termination()
     logger.info("gRPC server stopped")
 
 

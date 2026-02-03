@@ -3,49 +3,126 @@ gRPC Version Service implementation.
 Handles deployment lifecycle, status streaming, and log retrieval.
 """
 import asyncio
-import json
 import logging
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from typing import AsyncIterator, Dict, Any, Optional
 
+# Add generated directory to Python path for proto imports
+_generated_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'generated')
+if _generated_dir not in sys.path:
+    sys.path.insert(0, _generated_dir)
+
+import grpc
 import yaml
-from grpclib import GRPCError, Status
+from google.protobuf import timestamp_pb2
 from kubernetes_asyncio import client, watch
 
 import k8s
 from deployment_phase import calculate_phase
-
-# Placeholder imports - will be generated from protos
-# from generated.n8n_manager.v1 import version_pb2
-# from generated.n8n_manager.v1.version_grpc import VersionServiceBase
+from n8n_manager.v1 import version_pb2
+from n8n_manager.v1 import version_pb2_grpc
+from n8n_manager.v1 import common_pb2
 
 logger = logging.getLogger(__name__)
 
 
-class VersionServiceBase:
-    """Placeholder base class - will be replaced by generated code."""
-    pass
+def _create_timestamp(dt) -> timestamp_pb2.Timestamp:
+    """Convert datetime to protobuf Timestamp."""
+    ts = timestamp_pb2.Timestamp()
+    if dt:
+        ts.FromDatetime(dt)
+    return ts
 
 
-class VersionService(VersionServiceBase):
+def _create_deployment_phase(phase_info: Dict) -> common_pb2.DeploymentPhase:
+    """Convert phase dict to protobuf DeploymentPhase."""
+    return common_pb2.DeploymentPhase(
+        phase=phase_info.get("phase", "unknown"),
+        label=phase_info.get("label", "Unknown"),
+        pods=[]  # Pods can be added separately if needed
+    )
+
+
+def _create_pod_status(pod_data: Dict) -> common_pb2.PodStatus:
+    """Convert pod dict to protobuf PodStatus."""
+    containers = pod_data.get("containers", [])
+    ready = all(c.get("ready", False) for c in containers) if containers else False
+    restart_count = sum(c.get("restart_count", 0) for c in containers)
+
+    return common_pb2.PodStatus(
+        name=pod_data.get("name", ""),
+        phase=pod_data.get("phase", "Unknown"),
+        ready=ready,
+        restart_count=restart_count
+    )
+
+
+def _create_deployment(
+    namespace: str,
+    version: str,
+    mode: str,
+    phase_info: Dict,
+    url: str,
+    created_at=None,
+    pods_data: list = None
+) -> common_pb2.Deployment:
+    """Create a Deployment proto message."""
+    # Calculate port from version
+    port = 0
+    if version != 'unknown':
+        try:
+            version_parts = version.split('.')
+            port = 30000 + (int(version_parts[0]) * 1000) + (int(version_parts[1]) * 10) + int(version_parts[2])
+        except (ValueError, IndexError):
+            pass
+
+    # Create phase with pod statuses
+    phase_proto = common_pb2.DeploymentPhase(
+        phase=phase_info.get("phase", "unknown"),
+        label=phase_info.get("label", "Unknown"),
+        pods=[_create_pod_status(p) for p in (pods_data or [])]
+    )
+
+    deployment = common_pb2.Deployment(
+        namespace=namespace,
+        version=version,
+        mode=mode,
+        status=phase_info.get("phase", "unknown"),
+        port=port,
+        url=url,
+        phase=phase_proto
+    )
+
+    if created_at:
+        deployment.created_at.CopyFrom(_create_timestamp(created_at))
+
+    return deployment
+
+
+class VersionServicer(version_pb2_grpc.VersionServiceServicer):
     """
     gRPC service for n8n version/deployment management.
 
     Provides:
-    - ListDeployments: Get all deployed n8n instances
-    - GetDeployment: Get single deployment details
-    - DeployVersion: Deploy new n8n version (streaming events)
-    - DeleteDeployment: Remove a deployment
-    - WatchDeploymentStatus: Stream deployment phase updates
+    - List: Get all deployed n8n instances
+    - Get: Get single deployment details
+    - Deploy: Deploy new n8n version (streaming events)
+    - Delete: Remove a deployment
+    - WatchStatus: Stream deployment phase updates
     - StreamLogs: Stream pod logs
-    - GetDeploymentConfig: Get ConfigMap data
-    - GetDeploymentEvents: Get K8s events
+    - GetConfig: Get ConfigMap data
+    - GetEvents: Get K8s events
     """
 
-    async def ListDeployments(self, stream) -> None:
+    async def List(
+        self,
+        request: version_pb2.ListDeploymentsRequest,
+        context: grpc.aio.ServicerContext
+    ) -> version_pb2.ListDeploymentsResponse:
         """List all deployed n8n versions."""
         try:
             # Get all n8n namespaces
@@ -76,41 +153,40 @@ class VersionService(VersionServiceBase):
                 # Calculate URL from version
                 if version != 'unknown':
                     version_parts = version.split('.')
-                    port = 30000 + (int(version_parts[0]) * 100) + (int(version_parts[1]) * 10) + int(version_parts[2])
+                    port = 30000 + (int(version_parts[0]) * 1000) + (int(version_parts[1]) * 10) + int(version_parts[2])
                     url = f"http://localhost:{port}"
                 else:
                     url = ""
 
-                deployments.append({
-                    "namespace": name,
-                    "version": version,
-                    "mode": mode,
-                    "phase": phase_info.get("phase", "unknown"),
-                    "phase_label": phase_info.get("label", "Unknown"),
-                    "url": url,
-                    "pods_ready": len([p for p in pods_data if p.get("phase") == "Running"]),
-                    "pods_total": len(pods_data),
-                    "created_at": ns.metadata.creation_timestamp.isoformat() if ns.metadata.creation_timestamp else None,
-                })
+                deployment = _create_deployment(
+                    namespace=name,
+                    version=version,
+                    mode=mode,
+                    phase_info=phase_info,
+                    url=url,
+                    created_at=ns.metadata.creation_timestamp,
+                    pods_data=pods_data
+                )
+                deployments.append(deployment)
 
-            # Send response
-            # await stream.send_message(ListDeploymentsResponse(deployments=deployments))
-            # Placeholder: return dict for now
-            return {"deployments": deployments}
+            return version_pb2.ListDeploymentsResponse(deployments=deployments)
 
         except Exception as e:
-            logger.error(f"ListDeployments error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
+            logger.error(f"List error: {e}")
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
-    async def GetDeployment(self, stream) -> None:
+    async def Get(
+        self,
+        request: version_pb2.GetDeploymentRequest,
+        context: grpc.aio.ServicerContext
+    ) -> version_pb2.GetDeploymentResponse:
         """Get single deployment details by namespace."""
-        request = await stream.recv_message()
         namespace = request.namespace
 
         try:
             # Validate namespace exists
             if not await k8s.namespace_exists(namespace):
-                raise GRPCError(Status.NOT_FOUND, f"Namespace {namespace} not found")
+                await context.abort(grpc.StatusCode.NOT_FOUND, f"Namespace {namespace} not found")
 
             # Get pods
             pods = await k8s.list_pods(namespace=namespace)
@@ -130,76 +206,70 @@ class VersionService(VersionServiceBase):
             # Calculate URL
             if version != 'unknown':
                 version_parts = version.split('.')
-                port = 30000 + (int(version_parts[0]) * 100) + (int(version_parts[1]) * 10) + int(version_parts[2])
+                port = 30000 + (int(version_parts[0]) * 1000) + (int(version_parts[1]) * 10) + int(version_parts[2])
                 url = f"http://localhost:{port}"
             else:
                 url = ""
 
-            deployment = {
-                "namespace": namespace,
-                "version": version,
-                "mode": "queue" if is_queue_mode else "regular",
-                "phase": phase_info.get("phase", "unknown"),
-                "phase_label": phase_info.get("label", "Unknown"),
-                "phase_message": phase_info.get("message", ""),
-                "url": url,
-                "pods": pods_data,
-                "config": config_data,
-            }
+            # Get namespace details for created_at
+            ns = await k8s.get_namespace(namespace)
+            created_at = ns.metadata.creation_timestamp if ns else None
 
-            # await stream.send_message(GetDeploymentResponse(deployment=deployment))
-            return deployment
+            deployment = _create_deployment(
+                namespace=namespace,
+                version=version,
+                mode="queue" if is_queue_mode else "regular",
+                phase_info=phase_info,
+                url=url,
+                created_at=created_at,
+                pods_data=pods_data
+            )
 
-        except GRPCError:
+            return version_pb2.GetDeploymentResponse(deployment=deployment)
+
+        except grpc.aio.AbortError:
             raise
         except Exception as e:
-            logger.error(f"GetDeployment error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
+            logger.error(f"Get error: {e}")
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
-    async def DeployVersion(self, stream) -> AsyncIterator[Dict[str, Any]]:
+    async def Deploy(
+        self,
+        request: version_pb2.DeployRequest,
+        context: grpc.aio.ServicerContext
+    ) -> AsyncIterator[version_pb2.DeployResponse]:
         """
         Deploy a new n8n version.
         Streams deployment events back to client.
         """
-        request = await stream.recv_message()
         version = request.version
         mode = request.mode
-        name = getattr(request, 'name', None)
-        snapshot = getattr(request, 'snapshot', None)
-        helm_values = getattr(request, 'helm_values', None)
+        snapshot = request.snapshot if request.HasField('snapshot') else None
 
         values_file = None
 
         try:
             # Send initial event
-            await stream.send_message({
-                "event_type": "started",
-                "message": f"Starting deployment of n8n {version}",
-            })
+            yield version_pb2.DeployResponse(
+                phase="started",
+                message=f"Starting deployment of n8n {version}",
+                completed=False,
+                success=False
+            )
 
             # Build command
             mode_flag = "--queue" if mode == "queue" else "--regular"
             cmd = ["/workspace/scripts/deploy-version.sh", version, mode_flag]
 
-            if name:
-                cmd.extend(["--name", name])
-
             if snapshot:
                 cmd.extend(["--snapshot", snapshot])
 
-            # Handle helm values
-            if helm_values:
-                helm_values_dict = self._build_helm_values(helm_values)
-                if helm_values_dict:
-                    fd, values_file = tempfile.mkstemp(suffix='.yaml', prefix='helm-values-')
-                    with os.fdopen(fd, 'w') as f:
-                        yaml.dump(helm_values_dict, f)
-                    cmd.extend(["--values-file", values_file])
-
-            await stream.send_message({
-                "event_type": "progress",
-                "message": "Running Helm install...",
-            })
+            yield version_pb2.DeployResponse(
+                phase="helm_install",
+                message="Running Helm install...",
+                completed=False,
+                success=False
+            )
 
             # Run deployment
             result = subprocess.run(cmd, capture_output=True, text=True, cwd="/workspace", timeout=120)
@@ -213,84 +283,109 @@ class VersionService(VersionServiceBase):
                 if "already exists" in error_msg.lower() and "namespace" in error_msg.lower():
                     logger.warning(f"Helm reported namespace error but deployment likely succeeded: {error_msg}")
                 else:
-                    await stream.send_message({
-                        "event_type": "error",
-                        "message": error_msg,
-                    })
-                    raise GRPCError(Status.INTERNAL, error_msg)
+                    yield version_pb2.DeployResponse(
+                        phase="failed",
+                        message=error_msg,
+                        completed=True,
+                        success=False,
+                        error=error_msg
+                    )
+                    return
 
             # Calculate namespace and URL
-            if name:
-                namespace = name
-            else:
-                namespace = f"n8n-v{version.replace('.', '-')}"
+            namespace = f"n8n-v{version.replace('.', '-')}"
 
             version_parts = version.split('.')
-            port = 30000 + (int(version_parts[0]) * 100) + (int(version_parts[1]) * 10) + int(version_parts[2])
+            port = 30000 + (int(version_parts[0]) * 1000) + (int(version_parts[1]) * 10) + int(version_parts[2])
             url = f"http://localhost:{port}"
 
-            await stream.send_message({
-                "event_type": "helm_complete",
-                "message": "Helm install complete, waiting for pods...",
-                "namespace": namespace,
-                "url": url,
-            })
+            yield version_pb2.DeployResponse(
+                phase="helm_complete",
+                message="Helm install complete, waiting for pods...",
+                completed=False,
+                success=False
+            )
 
             # Watch for deployment completion
+            final_phase = "unknown"
             async for phase_event in self._watch_deployment_internal(namespace):
-                await stream.send_message({
-                    "event_type": "phase_update",
-                    "phase": phase_event.get("phase"),
-                    "label": phase_event.get("label"),
-                    "message": phase_event.get("message", ""),
-                })
+                yield version_pb2.DeployResponse(
+                    phase=phase_event.get("phase", "unknown"),
+                    message=phase_event.get("message", phase_event.get("label", "")),
+                    completed=False,
+                    success=False
+                )
 
-                if phase_event.get("phase") in ["running", "failed"]:
+                final_phase = phase_event.get("phase", "unknown")
+                if final_phase in ["running", "failed"]:
                     break
 
-            final_phase = phase_event.get("phase", "unknown")
             if final_phase == "running":
-                await stream.send_message({
-                    "event_type": "completed",
-                    "message": f"Deployment complete: {url}",
-                    "namespace": namespace,
-                    "url": url,
-                })
-            else:
-                await stream.send_message({
-                    "event_type": "failed",
-                    "message": phase_event.get("reason", "Deployment failed"),
-                    "namespace": namespace,
-                })
+                # Get final deployment details
+                pods = await k8s.list_pods(namespace=namespace)
+                pods_data = [k8s.pod_to_dict(p) for p in pods]
+                config_data = await k8s.get_configmap(namespace, "n8n-config")
+                is_queue_mode = config_data.get("EXECUTIONS_MODE") == "queue"
+                phase_info = calculate_phase(pods_data, is_queue_mode)
 
-        except GRPCError:
-            raise
+                deployment = _create_deployment(
+                    namespace=namespace,
+                    version=version,
+                    mode="queue" if is_queue_mode else "regular",
+                    phase_info=phase_info,
+                    url=url,
+                    pods_data=pods_data
+                )
+
+                yield version_pb2.DeployResponse(
+                    phase="completed",
+                    message=f"Deployment complete: {url}",
+                    completed=True,
+                    success=True,
+                    deployment=deployment
+                )
+            else:
+                yield version_pb2.DeployResponse(
+                    phase="failed",
+                    message=phase_event.get("reason", "Deployment failed"),
+                    completed=True,
+                    success=False,
+                    error=phase_event.get("reason", "Deployment failed")
+                )
+
         except subprocess.TimeoutExpired:
-            await stream.send_message({
-                "event_type": "error",
-                "message": "Deployment timed out",
-            })
-            raise GRPCError(Status.DEADLINE_EXCEEDED, "Deployment timed out")
+            yield version_pb2.DeployResponse(
+                phase="failed",
+                message="Deployment timed out",
+                completed=True,
+                success=False,
+                error="Deployment timed out"
+            )
         except Exception as e:
-            logger.error(f"DeployVersion error: {e}")
-            await stream.send_message({
-                "event_type": "error",
-                "message": str(e),
-            })
-            raise GRPCError(Status.INTERNAL, str(e))
+            logger.error(f"Deploy error: {e}")
+            yield version_pb2.DeployResponse(
+                phase="failed",
+                message=str(e),
+                completed=True,
+                success=False,
+                error=str(e)
+            )
         finally:
             if values_file and os.path.exists(values_file):
                 os.unlink(values_file)
 
-    async def DeleteDeployment(self, stream) -> None:
+    async def Delete(
+        self,
+        request: version_pb2.DeleteDeploymentRequest,
+        context: grpc.aio.ServicerContext
+    ) -> version_pb2.DeleteDeploymentResponse:
         """Delete a deployment by namespace."""
-        request = await stream.recv_message()
         namespace = request.namespace
 
         try:
             # Check if namespace exists
             if not await k8s.namespace_exists(namespace):
-                raise GRPCError(Status.NOT_FOUND, f"Namespace {namespace} not found")
+                await context.abort(grpc.StatusCode.NOT_FOUND, f"Namespace {namespace} not found")
 
             # Uninstall Helm release
             helm_result = subprocess.run(
@@ -305,34 +400,68 @@ class VersionService(VersionServiceBase):
             # Delete namespace
             await k8s.delete_namespace(namespace, wait=True, timeout=60)
 
-            # await stream.send_message(DeleteDeploymentResponse(success=True, message=f"Namespace {namespace} removed"))
-            return {"success": True, "message": f"Namespace {namespace} removed"}
+            return version_pb2.DeleteDeploymentResponse(
+                success=True,
+                message=f"Namespace {namespace} removed"
+            )
 
-        except GRPCError:
+        except grpc.aio.AbortError:
             raise
         except subprocess.TimeoutExpired:
-            raise GRPCError(Status.DEADLINE_EXCEEDED, "Helm uninstall timed out")
+            await context.abort(grpc.StatusCode.DEADLINE_EXCEEDED, "Helm uninstall timed out")
         except Exception as e:
-            logger.error(f"DeleteDeployment error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
+            logger.error(f"Delete error: {e}")
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
-    async def WatchDeploymentStatus(self, stream) -> AsyncIterator[Dict[str, Any]]:
+    async def WatchStatus(
+        self,
+        request: version_pb2.WatchStatusRequest,
+        context: grpc.aio.ServicerContext
+    ) -> AsyncIterator[version_pb2.WatchStatusResponse]:
         """Stream deployment phase updates via K8s watch."""
-        request = await stream.recv_message()
         namespace = request.namespace
 
         try:
             async for phase_event in self._watch_deployment_internal(namespace):
-                await stream.send_message(phase_event)
+                # Get current deployment state
+                pods = await k8s.list_pods(namespace=namespace)
+                pods_data = [k8s.pod_to_dict(p) for p in pods]
+                config_data = await k8s.get_configmap(namespace, "n8n-config")
+                is_queue_mode = config_data.get("EXECUTIONS_MODE") == "queue"
+
+                # Extract version
+                version_match = re.search(r'n8n-v(\d+)-(\d+)-(\d+)', namespace)
+                version = f"{version_match.group(1)}.{version_match.group(2)}.{version_match.group(3)}" if version_match else 'unknown'
+
+                # Calculate URL
+                if version != 'unknown':
+                    version_parts = version.split('.')
+                    port = 30000 + (int(version_parts[0]) * 1000) + (int(version_parts[1]) * 10) + int(version_parts[2])
+                    url = f"http://localhost:{port}"
+                else:
+                    url = ""
+
+                deployment = _create_deployment(
+                    namespace=namespace,
+                    version=version,
+                    mode="queue" if is_queue_mode else "regular",
+                    phase_info=phase_event,
+                    url=url,
+                    pods_data=pods_data
+                )
+
+                response = version_pb2.WatchStatusResponse(deployment=deployment)
+                response.timestamp.GetCurrentTime()
+                yield response
 
                 if phase_event.get("phase") in ["running", "failed"]:
                     break
 
-        except GRPCError:
+        except grpc.aio.AbortError:
             raise
         except Exception as e:
-            logger.error(f"WatchDeploymentStatus error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
+            logger.error(f"WatchStatus error: {e}")
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
     async def _watch_deployment_internal(self, namespace: str) -> AsyncIterator[Dict[str, Any]]:
         """Internal method to watch deployment phase changes."""
@@ -370,53 +499,64 @@ class VersionService(VersionServiceBase):
         finally:
             await w.close()
 
-    async def StreamLogs(self, stream) -> AsyncIterator[Dict[str, Any]]:
+    async def StreamLogs(
+        self,
+        request: version_pb2.StreamLogsRequest,
+        context: grpc.aio.ServicerContext
+    ) -> AsyncIterator[version_pb2.LogEntry]:
         """Stream logs from pods in a namespace."""
-        request = await stream.recv_message()
         namespace = request.namespace
-        pod_name = getattr(request, 'pod', None)
-        container = getattr(request, 'container', None)
-        tail_lines = getattr(request, 'tail_lines', 100)
-        follow = getattr(request, 'follow', False)
+        pod_name = request.pod_name if request.HasField('pod_name') else None
+        container = request.container if request.HasField('container') else None
+        tail_lines = request.tail_lines if request.HasField('tail_lines') else 100
+        follow = request.follow if request.HasField('follow') else False
 
         try:
             if not await k8s.namespace_exists(namespace):
-                raise GRPCError(Status.NOT_FOUND, f"Namespace {namespace} not found")
+                await context.abort(grpc.StatusCode.NOT_FOUND, f"Namespace {namespace} not found")
 
             if pod_name:
                 # Stream specific pod logs
                 if follow:
                     async for log_line in self._stream_pod_logs(namespace, pod_name, container, tail_lines):
-                        await stream.send_message({
-                            "pod": pod_name,
-                            "container": container,
-                            "line": log_line,
-                        })
+                        entry = version_pb2.LogEntry(
+                            pod_name=pod_name,
+                            container=container or "",
+                            message=log_line
+                        )
+                        entry.timestamp.GetCurrentTime()
+                        yield entry
                 else:
                     logs = await k8s.get_pod_logs(namespace, pod_name, container, tail_lines)
                     for line in logs.split('\n'):
-                        await stream.send_message({
-                            "pod": pod_name,
-                            "container": container,
-                            "line": line,
-                        })
+                        if line:
+                            entry = version_pb2.LogEntry(
+                                pod_name=pod_name,
+                                container=container or "",
+                                message=line
+                            )
+                            entry.timestamp.GetCurrentTime()
+                            yield entry
             else:
                 # Get logs from all pods
                 pods = await k8s.list_pods(namespace=namespace)
                 for p in pods:
                     logs = await k8s.get_pod_logs(namespace, p.metadata.name, container, tail_lines)
                     for line in logs.split('\n'):
-                        await stream.send_message({
-                            "pod": p.metadata.name,
-                            "container": container,
-                            "line": line,
-                        })
+                        if line:
+                            entry = version_pb2.LogEntry(
+                                pod_name=p.metadata.name,
+                                container=container or "",
+                                message=line
+                            )
+                            entry.timestamp.GetCurrentTime()
+                            yield entry
 
-        except GRPCError:
+        except grpc.aio.AbortError:
             raise
         except Exception as e:
             logger.error(f"StreamLogs error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
     async def _stream_pod_logs(
         self,
@@ -446,101 +586,66 @@ class VersionService(VersionServiceBase):
             process.terminate()
             await process.wait()
 
-    async def GetDeploymentConfig(self, stream) -> None:
+    async def GetConfig(
+        self,
+        request: version_pb2.GetConfigRequest,
+        context: grpc.aio.ServicerContext
+    ) -> version_pb2.GetConfigResponse:
         """Get ConfigMap environment variables for a deployment."""
-        request = await stream.recv_message()
         namespace = request.namespace
 
         try:
             if not await k8s.namespace_exists(namespace):
-                raise GRPCError(Status.NOT_FOUND, f"Namespace {namespace} not found")
+                await context.abort(grpc.StatusCode.NOT_FOUND, f"Namespace {namespace} not found")
 
             config_data = await k8s.get_configmap(namespace, "n8n-config")
-            # await stream.send_message(GetDeploymentConfigResponse(config=config_data))
-            return {"config": config_data}
+            return version_pb2.GetConfigResponse(config=config_data)
 
-        except GRPCError:
+        except grpc.aio.AbortError:
             raise
         except Exception as e:
-            logger.error(f"GetDeploymentConfig error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
+            logger.error(f"GetConfig error: {e}")
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
-    async def GetDeploymentEvents(self, stream) -> None:
+    async def GetEvents(
+        self,
+        request: version_pb2.GetEventsRequest,
+        context: grpc.aio.ServicerContext
+    ) -> version_pb2.GetEventsResponse:
         """Get K8s events for a deployment namespace."""
-        request = await stream.recv_message()
         namespace = request.namespace
-        limit = getattr(request, 'limit', 50)
+        limit = request.limit if request.HasField('limit') else 50
 
         try:
             if not await k8s.namespace_exists(namespace):
-                raise GRPCError(Status.NOT_FOUND, f"Namespace {namespace} not found")
+                await context.abort(grpc.StatusCode.NOT_FOUND, f"Namespace {namespace} not found")
 
-            events = await k8s.list_events(namespace, limit=limit)
-            # await stream.send_message(GetDeploymentEventsResponse(events=events))
-            return {"events": events}
+            events_data = await k8s.list_events(namespace, limit=limit)
 
-        except GRPCError:
+            events = []
+            for e in events_data:
+                event = version_pb2.Event(
+                    type=e.get("type", ""),
+                    reason=e.get("reason", ""),
+                    message=e.get("message", ""),
+                    object=f"{e.get('object', {}).get('kind', '')}/{e.get('object', {}).get('name', '')}",
+                    count=e.get("count", 1)
+                )
+                # Parse timestamp if present
+                if e.get("timestamp"):
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(e["timestamp"].replace('Z', '+00:00'))
+                        event.last_timestamp.FromDatetime(dt)
+                        event.first_timestamp.FromDatetime(dt)
+                    except (ValueError, AttributeError):
+                        pass
+                events.append(event)
+
+            return version_pb2.GetEventsResponse(events=events)
+
+        except grpc.aio.AbortError:
             raise
         except Exception as e:
-            logger.error(f"GetDeploymentEvents error: {e}")
-            raise GRPCError(Status.INTERNAL, str(e))
-
-    def _build_helm_values(self, helm_values) -> Dict[str, Any]:
-        """Convert helm values to dictionary."""
-        values = {}
-
-        if hasattr(helm_values, 'database') and helm_values.database:
-            db = {}
-            if helm_values.database.isolated:
-                isolated = {}
-                if helm_values.database.isolated.image:
-                    isolated['image'] = helm_values.database.isolated.image
-                if helm_values.database.isolated.storage_size:
-                    isolated['storage'] = {'size': helm_values.database.isolated.storage_size}
-                if isolated:
-                    db['isolated'] = isolated
-            if db:
-                values['database'] = db
-
-        if hasattr(helm_values, 'redis') and helm_values.redis:
-            redis = {}
-            if helm_values.redis.host:
-                redis['host'] = helm_values.redis.host
-            if helm_values.redis.port:
-                redis['port'] = helm_values.redis.port
-            if redis:
-                values['redis'] = redis
-
-        if hasattr(helm_values, 'n8n_config') and helm_values.n8n_config:
-            n8n_config = {}
-            if helm_values.n8n_config.encryption_key:
-                n8n_config['encryptionKey'] = helm_values.n8n_config.encryption_key
-            if helm_values.n8n_config.timezone:
-                n8n_config['timezone'] = helm_values.n8n_config.timezone
-            if helm_values.n8n_config.webhook_url:
-                n8n_config['webhookUrl'] = helm_values.n8n_config.webhook_url
-            if n8n_config:
-                values['n8nConfig'] = n8n_config
-
-        if hasattr(helm_values, 'extra_env') and helm_values.extra_env:
-            values['extraEnv'] = dict(helm_values.extra_env)
-
-        if hasattr(helm_values, 'raw_yaml') and helm_values.raw_yaml:
-            try:
-                raw_values = yaml.safe_load(helm_values.raw_yaml)
-                if isinstance(raw_values, dict):
-                    values = self._deep_merge(values, raw_values)
-            except yaml.YAMLError:
-                pass
-
-        return values
-
-    def _deep_merge(self, base: dict, override: dict) -> dict:
-        """Deep merge two dictionaries."""
-        result = base.copy()
-        for key, value in override.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-                result[key] = self._deep_merge(result[key], value)
-            else:
-                result[key] = value
-        return result
+            logger.error(f"GetEvents error: {e}")
+            await context.abort(grpc.StatusCode.INTERNAL, str(e))

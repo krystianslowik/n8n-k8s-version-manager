@@ -1,284 +1,114 @@
-import { createChannel, createClient } from 'nice-grpc-web'
+import { createClient, type Client } from '@connectrpc/connect'
+import { createGrpcWebTransport } from '@connectrpc/connect-web'
 
-// Import generated service definitions (will exist after protoc codegen)
-// These imports will be resolved once you run buf generate or protoc
-// import { VersionServiceDefinition } from './generated/version_pb'
-// import { SnapshotServiceDefinition } from './generated/snapshot_pb'
-// import { InfrastructureServiceDefinition } from './generated/infrastructure_pb'
+// Import generated service definitions
+import { VersionService } from './generated/n8n_manager/v1/version_pb'
+import { SnapshotService } from './generated/n8n_manager/v1/snapshot_pb'
+import { InfrastructureService } from './generated/n8n_manager/v1/infrastructure_pb'
+import { AvailableVersionsService } from './generated/n8n_manager/v1/available_versions_pb'
+
+// Re-export types from generated files for convenience
+export type {
+  Deployment,
+  DeploymentPhase,
+  PodStatus,
+  Snapshot,
+  ResourceUsage,
+} from './generated/n8n_manager/v1/common_pb'
+
+export type {
+  ListDeploymentsRequest,
+  ListDeploymentsResponse,
+  GetDeploymentRequest,
+  GetDeploymentResponse,
+  DeployRequest,
+  DeployResponse,
+  DeleteDeploymentRequest,
+  DeleteDeploymentResponse,
+  WatchStatusRequest,
+  WatchStatusResponse,
+  StreamLogsRequest,
+  LogEntry,
+  GetConfigRequest,
+  GetConfigResponse,
+  GetEventsRequest,
+  GetEventsResponse,
+  Event,
+} from './generated/n8n_manager/v1/version_pb'
+
+export type {
+  ListSnapshotsRequest,
+  ListSnapshotsResponse,
+  CreateSnapshotRequest,
+  CreateSnapshotResponse,
+  DeleteSnapshotRequest,
+  DeleteSnapshotResponse,
+  RestoreSnapshotRequest,
+  RestoreSnapshotResponse,
+} from './generated/n8n_manager/v1/snapshot_pb'
+
+export type {
+  GetInfrastructureStatusRequest,
+  GetInfrastructureStatusResponse,
+  ComponentStatus,
+  GetClusterResourcesRequest,
+  GetClusterResourcesResponse,
+  NodeResources,
+  ResourceCapacity,
+  ClusterSummary,
+} from './generated/n8n_manager/v1/infrastructure_pb'
+
+export type {
+  ListAvailableVersionsRequest,
+  ListAvailableVersionsResponse,
+  AvailableVersion,
+} from './generated/n8n_manager/v1/available_versions_pb'
 
 /**
- * gRPC channel configuration
+ * gRPC-Web transport configuration
  * Uses NEXT_PUBLIC_GRPC_URL environment variable or defaults to localhost:8080
  */
 const GRPC_URL = process.env.NEXT_PUBLIC_GRPC_URL || 'http://localhost:8080'
 
 /**
- * Create the gRPC-Web channel
- * This channel is shared across all service clients
+ * Create the gRPC-Web transport
+ * This transport is shared across all service clients
  */
-export const channel = createChannel(GRPC_URL)
+export const transport = createGrpcWebTransport({
+  baseUrl: GRPC_URL,
+})
 
 /**
- * Type placeholders for generated service definitions
- * Replace these with actual imports once protoc generates the TypeScript files
+ * Service client types for better type inference
  */
-
-// Version Service - manages n8n deployments
-export interface VersionServiceDefinition {
-  listDeployments: {
-    request: Record<string, never>
-    response: { deployments: Deployment[] }
-  }
-  getDeployment: {
-    request: { namespace: string }
-    response: Deployment
-  }
-  deployVersion: {
-    request: DeployRequest
-    response: AsyncIterable<DeploymentProgress>
-  }
-  deleteDeployment: {
-    request: { namespace: string }
-    response: { success: boolean; message?: string }
-  }
-  getDeploymentLogs: {
-    request: { namespace: string; pod?: string; container?: string; tail?: number }
-    response: AsyncIterable<LogEntry>
-  }
-  getDeploymentEvents: {
-    request: { namespace: string; limit?: number }
-    response: { events: K8sEvent[] }
-  }
-  getDeploymentConfig: {
-    request: { namespace: string }
-    response: { config: Record<string, string> }
-  }
-  getAvailableVersions: {
-    request: Record<string, never>
-    response: { versions: string[] }
-  }
-}
-
-// Snapshot Service - manages database snapshots
-export interface SnapshotServiceDefinition {
-  listSnapshots: {
-    request: Record<string, never>
-    response: { snapshots: Snapshot[] }
-  }
-  listNamedSnapshots: {
-    request: Record<string, never>
-    response: { snapshots: Snapshot[] }
-  }
-  createSnapshot: {
-    request: { name?: string; source?: string }
-    response: { success: boolean; message?: string; filename?: string }
-  }
-  deleteSnapshot: {
-    request: { filename: string }
-    response: { success: boolean; message?: string }
-  }
-  restoreSnapshot: {
-    request: { snapshot: string; namespace: string }
-    response: { success: boolean; message?: string }
-  }
-}
-
-// Infrastructure Service - health checks and cluster status
-export interface InfrastructureServiceDefinition {
-  getStatus: {
-    request: Record<string, never>
-    response: InfrastructureStatus
-  }
-  getClusterResources: {
-    request: Record<string, never>
-    response: ClusterResources
-  }
-}
-
-/**
- * Shared types used by gRPC services
- * These mirror the REST API types but are defined here for gRPC responses
- */
-export interface Deployment {
-  namespace: string
-  name?: string
-  version: string
-  status: 'running' | 'pending' | 'failed' | 'unknown'
-  phase?: DeploymentPhase
-  phaseInfo?: DeploymentPhaseInfo
-  mode: 'queue' | 'regular' | ''
-  url?: string
-  isolatedDb: boolean
-  snapshot?: string
-  createdAt?: string
-}
-
-export type DeploymentPhase =
-  | 'db-starting'
-  | 'n8n-starting'
-  | 'workers-starting'
-  | 'running'
-  | 'failed'
-  | 'unknown'
-
-export interface DeploymentPhaseInfo {
-  phase: DeploymentPhase
-  label: string
-  message?: string
-  failedPod?: string
-  reason?: string
-  podsReady?: number
-  podsTotal?: number
-}
-
-export interface DeployRequest {
-  version: string
-  mode: 'queue' | 'regular'
-  name?: string
-  snapshot?: string
-  helmValues?: HelmValues
-}
-
-export interface HelmValues {
-  database?: {
-    isolated?: {
-      image?: string
-      storage?: { size?: string }
-    }
-  }
-  redis?: { host?: string; port?: number }
-  n8nConfig?: {
-    encryptionKey?: string
-    timezone?: string
-    webhookUrl?: string
-  }
-  resources?: {
-    main?: ResourceSpec
-    worker?: ResourceSpec
-    webhook?: ResourceSpec
-  }
-  replicas?: { workers?: number }
-  service?: { type?: 'NodePort' | 'LoadBalancer' | 'ClusterIP' }
-  extraEnv?: Record<string, string>
-  rawYaml?: string
-}
-
-export interface ResourceSpec {
-  requests?: { cpu?: string; memory?: string }
-  limits?: { cpu?: string; memory?: string }
-}
-
-export interface DeploymentProgress {
-  phase: DeploymentPhase
-  label: string
-  message?: string
-  progress?: number
-  complete: boolean
-  error?: string
-}
-
-export interface LogEntry {
-  timestamp: string
-  pod: string
-  container?: string
-  message: string
-}
-
-export interface K8sEvent {
-  type: 'Normal' | 'Warning'
-  reason: string
-  message: string
-  timestamp: string
-  count: number
-  object: { kind: string; name: string }
-}
-
-export interface Snapshot {
-  filename: string
-  name?: string
-  type: 'named' | 'auto'
-  timestamp?: string
-  created?: string
-  size?: string
-  source?: string
-}
-
-export interface InfrastructureStatus {
-  redis: { status: 'healthy' | 'unavailable'; message?: string }
-  backup: { status: 'healthy' | 'unavailable'; message?: string }
-}
-
-export interface ClusterResources {
-  error?: string
-  memory: {
-    allocatableMi: number
-    usedMi: number
-    availableMi: number
-    utilizationPercent: number
-  } | null
-  canDeploy: { queueMode: boolean; regularMode: boolean }
-  deployments: Array<{
-    namespace: string
-    memoryMi: number
-    mode: 'queue' | 'regular'
-    ageSeconds: number
-  }>
-}
+export type VersionClient = Client<typeof VersionService>
+export type SnapshotClient = Client<typeof SnapshotService>
+export type InfrastructureClient = Client<typeof InfrastructureService>
+export type AvailableVersionsClient = Client<typeof AvailableVersionsService>
 
 /**
  * Service client instances
  *
  * Usage:
  * ```typescript
- * import { versionClient, snapshotClient, infrastructureClient } from './grpc-client'
+ * import { versionClient, snapshotClient, infrastructureClient, availableVersionsClient } from './grpc-client'
  *
- * // List deployments
- * const { deployments } = await versionClient.listDeployments({})
+ * // List deployments (unary call)
+ * const response = await versionClient.list({})
+ * console.log(response.deployments)
  *
- * // Stream deployment progress
- * for await (const progress of versionClient.deployVersion(request)) {
+ * // Deploy with streaming progress (server streaming)
+ * for await (const progress of versionClient.deploy({ version: '1.85.0', mode: 'regular' })) {
  *   console.log(progress.phase, progress.message)
  * }
- * ```
  *
- * NOTE: Uncomment these exports once the service definitions are generated
+ * // Stream logs (server streaming)
+ * for await (const entry of versionClient.streamLogs({ namespace: 'n8n-v1-85-0' })) {
+ *   console.log(entry.message)
+ * }
+ * ```
  */
-
-// export const versionClient = createClient(VersionServiceDefinition, channel)
-// export const snapshotClient = createClient(SnapshotServiceDefinition, channel)
-// export const infrastructureClient = createClient(InfrastructureServiceDefinition, channel)
-
-/**
- * Placeholder clients that throw errors until protoc generates the service definitions
- * Remove these once you have the actual generated code
- */
-const notImplementedError = () => {
-  throw new Error(
-    'gRPC client not configured. Run protoc to generate service definitions, ' +
-    'then uncomment the client exports in grpc-client.ts'
-  )
-}
-
-export const versionClient = {
-  listDeployments: notImplementedError,
-  getDeployment: notImplementedError,
-  deployVersion: notImplementedError,
-  deleteDeployment: notImplementedError,
-  getDeploymentLogs: notImplementedError,
-  getDeploymentEvents: notImplementedError,
-  getDeploymentConfig: notImplementedError,
-  getAvailableVersions: notImplementedError,
-} as const
-
-export const snapshotClient = {
-  listSnapshots: notImplementedError,
-  listNamedSnapshots: notImplementedError,
-  createSnapshot: notImplementedError,
-  deleteSnapshot: notImplementedError,
-  restoreSnapshot: notImplementedError,
-} as const
-
-export const infrastructureClient = {
-  getStatus: notImplementedError,
-  getClusterResources: notImplementedError,
-} as const
+export const versionClient: VersionClient = createClient(VersionService, transport)
+export const snapshotClient: SnapshotClient = createClient(SnapshotService, transport)
+export const infrastructureClient: InfrastructureClient = createClient(InfrastructureService, transport)
+export const availableVersionsClient: AvailableVersionsClient = createClient(AvailableVersionsService, transport)

@@ -12,15 +12,37 @@ import {
   versionClient,
   snapshotClient,
   infrastructureClient,
-  type Deployment,
-  type DeployRequest,
-  type DeploymentProgress,
-  type Snapshot,
-  type InfrastructureStatus,
-  type ClusterResources,
-  type K8sEvent,
-  type LogEntry,
+  availableVersionsClient,
 } from './grpc-client'
+
+// Import types from generated protobuf files
+import type {
+  Deployment,
+  Snapshot,
+} from './generated/n8n_manager/v1/common_pb'
+
+import type {
+  DeployRequest,
+  DeployResponse,
+  LogEntry,
+  Event,
+  GetConfigResponse,
+} from './generated/n8n_manager/v1/version_pb'
+
+import type {
+  CreateSnapshotRequest,
+  CreateSnapshotResponse,
+  RestoreSnapshotResponse,
+} from './generated/n8n_manager/v1/snapshot_pb'
+
+import type {
+  GetInfrastructureStatusResponse,
+  GetClusterResourcesResponse,
+} from './generated/n8n_manager/v1/infrastructure_pb'
+
+import type {
+  AvailableVersion,
+} from './generated/n8n_manager/v1/available_versions_pb'
 
 /**
  * Query keys for React Query cache management
@@ -32,7 +54,6 @@ export const grpcQueryKeys = {
   deploymentEvents: (namespace: string) => ['grpc', 'deployment', namespace, 'events'] as const,
   deploymentConfig: (namespace: string) => ['grpc', 'deployment', namespace, 'config'] as const,
   snapshots: ['grpc', 'snapshots'] as const,
-  namedSnapshots: ['grpc', 'snapshots', 'named'] as const,
   infrastructure: ['grpc', 'infrastructure'] as const,
   clusterResources: ['grpc', 'cluster', 'resources'] as const,
   availableVersions: ['grpc', 'versions', 'available'] as const,
@@ -51,7 +72,7 @@ export function useDeployments(
   return useQuery({
     queryKey: grpcQueryKeys.deployments,
     queryFn: async () => {
-      const response = await versionClient.listDeployments({})
+      const response = await versionClient.list({})
       return response.deployments
     },
     staleTime: 10_000, // 10 seconds
@@ -64,12 +85,13 @@ export function useDeployments(
  */
 export function useDeployment(
   namespace: string,
-  options?: Omit<UseQueryOptions<Deployment, Error>, 'queryKey' | 'queryFn'>
+  options?: Omit<UseQueryOptions<Deployment | undefined, Error>, 'queryKey' | 'queryFn'>
 ) {
   return useQuery({
     queryKey: grpcQueryKeys.deployment(namespace),
     queryFn: async () => {
-      return versionClient.getDeployment({ namespace })
+      const response = await versionClient.get({ namespace })
+      return response.deployment
     },
     enabled: !!namespace,
     staleTime: 5_000,
@@ -82,46 +104,53 @@ export function useDeployment(
  */
 export function useDeployVersion(
   options?: {
-    onProgress?: (progress: DeploymentProgress) => void
-    onSuccess?: (namespace: string) => void
+    onProgress?: (progress: DeployResponse) => void
+    onSuccess?: (namespace: string, deployment?: Deployment) => void
     onError?: (error: Error) => void
   }
 ) {
   const queryClient = useQueryClient()
-  const [progress, setProgress] = useState<DeploymentProgress | null>(null)
+  const [progress, setProgress] = useState<DeployResponse | null>(null)
   const [isDeploying, setIsDeploying] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const deploy = useCallback(
-    async (request: DeployRequest) => {
+    async (request: Pick<DeployRequest, 'version' | 'mode' | 'snapshot'>) => {
       setIsDeploying(true)
       setProgress(null)
       abortControllerRef.current = new AbortController()
 
       try {
-        const stream = versionClient.deployVersion(request)
+        // Server streaming call - returns an AsyncIterable
+        const stream = versionClient.deploy(request, {
+          signal: abortControllerRef.current.signal,
+        })
 
-        // Handle streaming response
-        for await (const progressUpdate of stream as AsyncIterable<DeploymentProgress>) {
+        for await (const progressUpdate of stream) {
           setProgress(progressUpdate)
           options?.onProgress?.(progressUpdate)
 
-          if (progressUpdate.complete) {
+          if (progressUpdate.completed) {
             // Invalidate queries on completion
             queryClient.invalidateQueries({ queryKey: grpcQueryKeys.deployments })
 
-            if (progressUpdate.error) {
-              const error = new Error(progressUpdate.error)
+            if (!progressUpdate.success || progressUpdate.error) {
+              const error = new Error(progressUpdate.error || 'Deployment failed')
               options?.onError?.(error)
               throw error
             } else {
-              // Extract namespace from request
-              const namespace = `n8n-v${request.version.replace(/\./g, '-')}`
-              options?.onSuccess?.(namespace)
+              // Extract namespace from request or response
+              const namespace = progressUpdate.deployment?.namespace ||
+                `n8n-v${request.version.replace(/\./g, '-')}`
+              options?.onSuccess?.(namespace, progressUpdate.deployment)
             }
           }
         }
       } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          // User cancelled - not an error
+          return
+        }
         const err = error instanceof Error ? error : new Error(String(error))
         options?.onError?.(err)
         throw err
@@ -151,13 +180,14 @@ export function useDeployVersion(
  * Delete a deployment
  */
 export function useDeleteDeployment(
-  options?: UseMutationOptions<{ success: boolean; message?: string }, Error, string>
+  options?: UseMutationOptions<{ success: boolean; message: string }, Error, string>
 ) {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (namespace: string) => {
-      return versionClient.deleteDeployment({ namespace })
+      const response = await versionClient.delete({ namespace })
+      return { success: response.success, message: response.message }
     },
     onSuccess: (data, namespace) => {
       // Remove from cache immediately
@@ -174,14 +204,83 @@ export function useDeleteDeployment(
 }
 
 /**
+ * Watch deployment status updates in real-time
+ */
+export function useWatchDeploymentStatus(
+  namespace: string,
+  options?: {
+    enabled?: boolean
+    onUpdate?: (deployment: Deployment) => void
+  }
+) {
+  const [deployment, setDeployment] = useState<Deployment | null>(null)
+  const [isWatching, setIsWatching] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  const startWatching = useCallback(async () => {
+    if (!namespace) return
+
+    setIsWatching(true)
+    setError(null)
+    abortControllerRef.current = new AbortController()
+
+    try {
+      const stream = versionClient.watchStatus(
+        { namespace },
+        { signal: abortControllerRef.current.signal }
+      )
+
+      for await (const statusUpdate of stream) {
+        if (statusUpdate.deployment) {
+          setDeployment(statusUpdate.deployment)
+          options?.onUpdate?.(statusUpdate.deployment)
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        setError(err)
+      }
+    } finally {
+      setIsWatching(false)
+      abortControllerRef.current = null
+    }
+  }, [namespace, options])
+
+  const stopWatching = useCallback(() => {
+    abortControllerRef.current?.abort()
+    setIsWatching(false)
+  }, [])
+
+  useEffect(() => {
+    if (options?.enabled !== false && namespace) {
+      startWatching()
+    }
+
+    return () => {
+      stopWatching()
+    }
+  }, [namespace, options?.enabled, startWatching, stopWatching])
+
+  return {
+    deployment,
+    isWatching,
+    error,
+    startWatching,
+    stopWatching,
+  }
+}
+
+/**
  * Stream deployment logs in real-time
  */
 export function useDeploymentLogs(
   namespace: string,
   options?: {
-    pod?: string
+    podName?: string
     container?: string
-    tail?: number
+    tailLines?: number
+    follow?: boolean
     enabled?: boolean
     onLog?: (log: LogEntry) => void
   }
@@ -199,14 +298,18 @@ export function useDeploymentLogs(
     abortControllerRef.current = new AbortController()
 
     try {
-      const stream = versionClient.getDeploymentLogs({
-        namespace,
-        pod: options?.pod,
-        container: options?.container,
-        tail: options?.tail ?? 100,
-      })
+      const stream = versionClient.streamLogs(
+        {
+          namespace,
+          podName: options?.podName,
+          container: options?.container,
+          tailLines: options?.tailLines ?? 100,
+          follow: options?.follow ?? true,
+        },
+        { signal: abortControllerRef.current.signal }
+      )
 
-      for await (const logEntry of stream as AsyncIterable<LogEntry>) {
+      for await (const logEntry of stream) {
         setLogs((prev) => [...prev, logEntry])
         options?.onLog?.(logEntry)
       }
@@ -256,12 +359,12 @@ export function useDeploymentLogs(
 export function useDeploymentEvents(
   namespace: string,
   limit: number = 50,
-  options?: Omit<UseQueryOptions<K8sEvent[], Error>, 'queryKey' | 'queryFn'>
+  options?: Omit<UseQueryOptions<Event[], Error>, 'queryKey' | 'queryFn'>
 ) {
   return useQuery({
     queryKey: grpcQueryKeys.deploymentEvents(namespace),
     queryFn: async () => {
-      const response = await versionClient.getDeploymentEvents({ namespace, limit })
+      const response = await versionClient.getEvents({ namespace, limit })
       return response.events
     },
     enabled: !!namespace,
@@ -275,13 +378,12 @@ export function useDeploymentEvents(
  */
 export function useDeploymentConfig(
   namespace: string,
-  options?: Omit<UseQueryOptions<Record<string, string>, Error>, 'queryKey' | 'queryFn'>
+  options?: Omit<UseQueryOptions<GetConfigResponse, Error>, 'queryKey' | 'queryFn'>
 ) {
   return useQuery({
     queryKey: grpcQueryKeys.deploymentConfig(namespace),
     queryFn: async () => {
-      const response = await versionClient.getDeploymentConfig({ namespace })
-      return response.config
+      return versionClient.getConfig({ namespace })
     },
     enabled: !!namespace,
     staleTime: 30_000, // Config changes less frequently
@@ -302,7 +404,7 @@ export function useSnapshots(
   return useQuery({
     queryKey: grpcQueryKeys.snapshots,
     queryFn: async () => {
-      const response = await snapshotClient.listSnapshots({})
+      const response = await snapshotClient.list({})
       return response.snapshots
     },
     staleTime: 30_000,
@@ -311,101 +413,175 @@ export function useSnapshots(
 }
 
 /**
- * Fetch named snapshots only
- */
-export function useNamedSnapshots(
-  options?: Omit<UseQueryOptions<Snapshot[], Error>, 'queryKey' | 'queryFn'>
-) {
-  return useQuery({
-    queryKey: grpcQueryKeys.namedSnapshots,
-    queryFn: async () => {
-      const response = await snapshotClient.listNamedSnapshots({})
-      return response.snapshots
-    },
-    staleTime: 30_000,
-    ...options,
-  })
-}
-
-/**
- * Create a new snapshot
+ * Create a new snapshot with streaming progress
  */
 export function useCreateSnapshot(
-  options?: UseMutationOptions<
-    { success: boolean; message?: string; filename?: string },
-    Error,
-    { name?: string; source?: string }
-  >
+  options?: {
+    onProgress?: (progress: CreateSnapshotResponse) => void
+    onSuccess?: (snapshot?: Snapshot) => void
+    onError?: (error: Error) => void
+  }
 ) {
   const queryClient = useQueryClient()
+  const [progress, setProgress] = useState<CreateSnapshotResponse | null>(null)
+  const [isCreating, setIsCreating] = useState(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
-  return useMutation({
-    mutationFn: async (request: { name?: string; source?: string }) => {
-      return snapshotClient.createSnapshot(request)
+  const create = useCallback(
+    async (request: Pick<CreateSnapshotRequest, 'name' | 'sourceNamespace'>) => {
+      setIsCreating(true)
+      setProgress(null)
+      abortControllerRef.current = new AbortController()
+
+      try {
+        const stream = snapshotClient.create(request, {
+          signal: abortControllerRef.current.signal,
+        })
+
+        for await (const progressUpdate of stream) {
+          setProgress(progressUpdate)
+          options?.onProgress?.(progressUpdate)
+
+          if (progressUpdate.completed) {
+            queryClient.invalidateQueries({ queryKey: grpcQueryKeys.snapshots })
+
+            if (!progressUpdate.success || progressUpdate.error) {
+              const error = new Error(progressUpdate.error || 'Snapshot creation failed')
+              options?.onError?.(error)
+              throw error
+            } else {
+              options?.onSuccess?.(progressUpdate.snapshot)
+            }
+          }
+        }
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          return
+        }
+        const err = error instanceof Error ? error : new Error(String(error))
+        options?.onError?.(err)
+        throw err
+      } finally {
+        setIsCreating(false)
+        abortControllerRef.current = null
+      }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: grpcQueryKeys.snapshots })
-      queryClient.invalidateQueries({ queryKey: grpcQueryKeys.namedSnapshots })
-    },
-    ...options,
-  })
+    [queryClient, options]
+  )
+
+  const cancel = useCallback(() => {
+    abortControllerRef.current?.abort()
+    setIsCreating(false)
+    setProgress(null)
+  }, [])
+
+  return {
+    create,
+    cancel,
+    progress,
+    isCreating,
+  }
 }
 
 /**
  * Delete a snapshot
  */
 export function useDeleteSnapshot(
-  options?: UseMutationOptions<{ success: boolean; message?: string }, Error, string>
+  options?: UseMutationOptions<{ success: boolean; message: string }, Error, string>
 ) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (filename: string) => {
-      return snapshotClient.deleteSnapshot({ filename })
+    mutationFn: async (name: string) => {
+      const response = await snapshotClient.delete({ name })
+      return { success: response.success, message: response.message }
     },
-    onSuccess: (_, filename) => {
+    onSuccess: (_, name) => {
       // Optimistic update
       queryClient.setQueryData<Snapshot[]>(
         grpcQueryKeys.snapshots,
-        (old) => old?.filter((s) => s.filename !== filename) ?? []
-      )
-      queryClient.setQueryData<Snapshot[]>(
-        grpcQueryKeys.namedSnapshots,
-        (old) => old?.filter((s) => s.filename !== filename) ?? []
+        (old) => old?.filter((s) => s.name !== name) ?? []
       )
       // Refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: grpcQueryKeys.snapshots })
-      queryClient.invalidateQueries({ queryKey: grpcQueryKeys.namedSnapshots })
     },
     ...options,
   })
 }
 
 /**
- * Restore a snapshot to a deployment
+ * Restore a snapshot to a deployment with streaming progress
  */
 export function useRestoreSnapshot(
-  options?: UseMutationOptions<
-    { success: boolean; message?: string },
-    Error,
-    { snapshot: string; namespace: string }
-  >
+  options?: {
+    onProgress?: (progress: RestoreSnapshotResponse) => void
+    onSuccess?: () => void
+    onError?: (error: Error) => void
+  }
 ) {
   const queryClient = useQueryClient()
+  const [progress, setProgress] = useState<RestoreSnapshotResponse | null>(null)
+  const [isRestoring, setIsRestoring] = useState(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
-  return useMutation({
-    mutationFn: async (request: { snapshot: string; namespace: string }) => {
-      return snapshotClient.restoreSnapshot(request)
+  const restore = useCallback(
+    async (request: { snapshotName: string; targetNamespace: string }) => {
+      setIsRestoring(true)
+      setProgress(null)
+      abortControllerRef.current = new AbortController()
+
+      try {
+        const stream = snapshotClient.restore(request, {
+          signal: abortControllerRef.current.signal,
+        })
+
+        for await (const progressUpdate of stream) {
+          setProgress(progressUpdate)
+          options?.onProgress?.(progressUpdate)
+
+          if (progressUpdate.completed) {
+            // Invalidate deployment queries since data changed
+            queryClient.invalidateQueries({
+              queryKey: grpcQueryKeys.deployment(request.targetNamespace),
+            })
+            queryClient.invalidateQueries({ queryKey: grpcQueryKeys.deployments })
+
+            if (!progressUpdate.success || progressUpdate.error) {
+              const error = new Error(progressUpdate.error || 'Snapshot restore failed')
+              options?.onError?.(error)
+              throw error
+            } else {
+              options?.onSuccess?.()
+            }
+          }
+        }
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          return
+        }
+        const err = error instanceof Error ? error : new Error(String(error))
+        options?.onError?.(err)
+        throw err
+      } finally {
+        setIsRestoring(false)
+        abortControllerRef.current = null
+      }
     },
-    onSuccess: (_, variables) => {
-      // Invalidate deployment queries since data changed
-      queryClient.invalidateQueries({
-        queryKey: grpcQueryKeys.deployment(variables.namespace),
-      })
-      queryClient.invalidateQueries({ queryKey: grpcQueryKeys.deployments })
-    },
-    ...options,
-  })
+    [queryClient, options]
+  )
+
+  const cancel = useCallback(() => {
+    abortControllerRef.current?.abort()
+    setIsRestoring(false)
+    setProgress(null)
+  }, [])
+
+  return {
+    restore,
+    cancel,
+    progress,
+    isRestoring,
+  }
 }
 
 // ============================================================================
@@ -416,7 +592,7 @@ export function useRestoreSnapshot(
  * Fetch infrastructure status (Redis, backup storage health)
  */
 export function useInfrastructureStatus(
-  options?: Omit<UseQueryOptions<InfrastructureStatus, Error>, 'queryKey' | 'queryFn'>
+  options?: Omit<UseQueryOptions<GetInfrastructureStatusResponse, Error>, 'queryKey' | 'queryFn'>
 ) {
   return useQuery({
     queryKey: grpcQueryKeys.infrastructure,
@@ -433,7 +609,7 @@ export function useInfrastructureStatus(
  * Fetch cluster resources
  */
 export function useClusterResources(
-  options?: Omit<UseQueryOptions<ClusterResources, Error>, 'queryKey' | 'queryFn'>
+  options?: Omit<UseQueryOptions<GetClusterResourcesResponse, Error>, 'queryKey' | 'queryFn'>
 ) {
   return useQuery({
     queryKey: grpcQueryKeys.clusterResources,
@@ -453,16 +629,24 @@ export function useClusterResources(
  * Fetch available n8n versions from GitHub
  */
 export function useAvailableVersions(
-  options?: Omit<UseQueryOptions<string[], Error>, 'queryKey' | 'queryFn'>
+  options?: {
+    includePrereleases?: boolean
+    limit?: number
+  } & Omit<UseQueryOptions<AvailableVersion[], Error>, 'queryKey' | 'queryFn'>
 ) {
+  const { includePrereleases, limit, ...queryOptions } = options ?? {}
+
   return useQuery({
-    queryKey: grpcQueryKeys.availableVersions,
+    queryKey: [...grpcQueryKeys.availableVersions, { includePrereleases, limit }],
     queryFn: async () => {
-      const response = await versionClient.getAvailableVersions({})
+      const response = await availableVersionsClient.listAvailableVersions({
+        includePrereleases,
+        limit,
+      })
       return response.versions
     },
     staleTime: 6 * 60 * 60 * 1000, // 6 hours (matches backend cache)
-    ...options,
+    ...queryOptions,
   })
 }
 
@@ -480,7 +664,10 @@ export function usePrefetchDeployment() {
     (namespace: string) => {
       queryClient.prefetchQuery({
         queryKey: grpcQueryKeys.deployment(namespace),
-        queryFn: async () => versionClient.getDeployment({ namespace }),
+        queryFn: async () => {
+          const response = await versionClient.get({ namespace })
+          return response.deployment
+        },
         staleTime: 5_000,
       })
     },
