@@ -109,3 +109,58 @@ async def delete_namespace(name: str, wait: bool = True, timeout: int = 60) -> b
         raise HTTPException(status_code=504, detail="Namespace deletion timed out")
 
     return True
+
+
+# =============================================================================
+# Pod Operations
+# =============================================================================
+
+async def list_pods(
+    namespace: str = None,
+    label_selector: str = None,
+    all_namespaces: bool = False
+) -> List[client.V1Pod]:
+    """List pods in a namespace or across all namespaces."""
+    api = await get_client()
+    v1 = client.CoreV1Api(api)
+    try:
+        if all_namespaces:
+            result = await v1.list_pod_for_all_namespaces(label_selector=label_selector)
+        else:
+            result = await v1.list_namespaced_pod(
+                namespace=namespace,
+                label_selector=label_selector
+            )
+        return result.items
+    except ApiException as e:
+        handle_api_exception(e, "pods")
+
+
+async def get_pod_phase(namespace: str, label_selector: str) -> Optional[str]:
+    """Get the phase of the first pod matching the selector."""
+    pods = await list_pods(namespace=namespace, label_selector=label_selector)
+    if pods:
+        return pods[0].status.phase
+    return None
+
+
+async def get_pod_logs(
+    namespace: str,
+    pod_name: str,
+    container: str = None,
+    tail_lines: int = 100
+) -> str:
+    """Get logs from a pod."""
+    api = await get_client()
+    v1 = client.CoreV1Api(api)
+    try:
+        return await v1.read_namespaced_pod_log(
+            name=pod_name,
+            namespace=namespace,
+            container=container,
+            tail_lines=tail_lines
+        )
+    except ApiException as e:
+        if e.status == 404:
+            return f"Pod {pod_name} not found"
+        return f"Error fetching logs: {e.reason}"
