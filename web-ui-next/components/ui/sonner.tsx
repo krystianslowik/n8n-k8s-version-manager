@@ -27,8 +27,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast: "border shadow-lg",
-          title: "text-foreground font-semibold",
-          description: "text-foreground/70",
+          title: "!text-foreground font-semibold",
+          description: "!text-foreground/80",
           success: "bg-background border-green-500/50 [&_svg]:text-green-600",
           error: "bg-background border-red-500/50 [&_svg]:text-red-600",
           warning: "bg-background border-yellow-500/50 [&_svg]:text-yellow-600",
