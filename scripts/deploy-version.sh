@@ -83,8 +83,9 @@ else
   RELEASE_NAME="n8n-v${VERSION//./-}"
 
   # Calculate port from version (include patch to avoid conflicts)
-  # Formula: 30000 + major*100 + minor*10 + patch
-  PORT=$(python3 -c "v='$VERSION'.split('.'); print(30000 + int(v[0])*100 + int(v[1])*10 + int(v[2]))")
+  # Formula: 30000 + major*1000 + minor*10 + patch
+  # Strips pre-release suffix (e.g., "8-exp" -> "8")
+  PORT=$(python3 -c "v='$VERSION'.split('.'); patch=v[2].split('-')[0]; print(30000 + int(v[0])*1000 + int(v[1])*10 + int(patch))")
 fi
 
 # Validate namespace and Helm release
