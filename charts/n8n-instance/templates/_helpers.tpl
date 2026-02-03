@@ -53,8 +53,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/*
 Calculate NodePort from version string
-Converts version like "2.3.6" to port 30236
-Formula: 30000 + major*100 + minor*10 + patch
+Converts version like "1.85.0" to port 31850
+Formula: 30000 + major*1000 + minor*10 + patch
+Supports: major 0-2, minor 0-99, patch 0-9 (range 30000-32999)
 */}}
 {{- define "n8n-instance.nodePort" -}}
 {{- if .Values.service.nodePort }}
@@ -65,7 +66,7 @@ Formula: 30000 + major*100 + minor*10 + patch
 {{- $major := index $parts 0 | atoi }}
 {{- $minor := index $parts 1 | default "0" | atoi }}
 {{- $patch := index $parts 2 | default "0" | atoi }}
-{{- add 30000 (add (mul $major 100) (add (mul $minor 10) $patch)) }}
+{{- add 30000 (add (mul $major 1000) (add (mul $minor 10) $patch)) }}
 {{- end }}
 {{- end }}
 
