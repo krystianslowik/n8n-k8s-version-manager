@@ -14,8 +14,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY main.py .
 COPY *.py ./
+COPY services/ ./services/
+COPY generated/ ./generated/
 
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh
@@ -24,6 +25,6 @@ RUN chmod +x /entrypoint.sh
 # Set KUBECONFIG to use the modified config created by entrypoint
 ENV KUBECONFIG=/tmp/kubeconfig
 
-EXPOSE 8080
+EXPOSE 50051
 
 ENTRYPOINT ["/entrypoint.sh"]

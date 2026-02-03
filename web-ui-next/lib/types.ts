@@ -19,6 +19,7 @@ export type DeploymentPhase =
   | 'workers-starting'
   | 'running'
   | 'failed'
+  | 'deleting'
   | 'unknown'
 
 export interface DeploymentPhaseInfo {

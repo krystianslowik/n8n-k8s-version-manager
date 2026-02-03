@@ -67,6 +67,7 @@ const PHASE_CONFIG: Record<DeploymentPhase | string, {
   'workers-starting': { variant: 'secondary', dotClass: 'bg-purple-500', label: 'Workers', pulse: true },
   'running': { variant: 'default', dotClass: 'bg-emerald-500', label: 'Running' },
   'failed': { variant: 'destructive', dotClass: 'bg-red-500', label: 'Failed' },
+  'deleting': { variant: 'secondary', dotClass: 'bg-amber-500', label: 'Deleting', pulse: true },
   'pending': { variant: 'secondary', dotClass: 'bg-amber-500', label: 'Pending', pulse: true },
   'unknown': { variant: 'outline', dotClass: 'bg-zinc-400', label: 'Unknown' },
 }

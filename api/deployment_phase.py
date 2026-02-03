@@ -11,6 +11,7 @@ class DeploymentPhase(str, Enum):
     WORKERS_STARTING = "workers-starting"
     RUNNING = "running"
     FAILED = "failed"
+    DELETING = "deleting"
     UNKNOWN = "unknown"
 
 
@@ -20,6 +21,7 @@ PHASE_LABELS = {
     DeploymentPhase.WORKERS_STARTING: "Workers",
     DeploymentPhase.RUNNING: "Running",
     DeploymentPhase.FAILED: "Failed",
+    DeploymentPhase.DELETING: "Deleting",
     DeploymentPhase.UNKNOWN: "Unknown",
 }
 
@@ -72,6 +74,15 @@ def calculate_phase(pods: List[Dict], is_queue_mode: bool) -> Dict[str, Any]:
             "phase": DeploymentPhase.DB_STARTING.value,
             "label": PHASE_LABELS[DeploymentPhase.DB_STARTING],
             "message": "Waiting for pods..."
+        }
+
+    # Check if all pods are terminating (deletion in progress)
+    terminating_pods = [p for p in pods if p.get("terminating", False)]
+    if terminating_pods and len(terminating_pods) == len(pods):
+        return {
+            "phase": DeploymentPhase.DELETING.value,
+            "label": PHASE_LABELS[DeploymentPhase.DELETING],
+            "message": f"Removing {len(terminating_pods)} pods..."
         }
 
     # Categorize pods by type

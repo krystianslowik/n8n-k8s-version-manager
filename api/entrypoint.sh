@@ -13,5 +13,5 @@ if [ -f /root/.kube/config ]; then
     echo "Kubeconfig updated successfully (using /tmp/kubeconfig)"
 fi
 
-# Start the FastAPI application
-exec uvicorn main:app --host 0.0.0.0 --port 8080
+# Execute the passed command (allows docker-compose command override)
+exec "$@"
