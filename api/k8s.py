@@ -144,6 +144,37 @@ async def get_pod_phase(namespace: str, label_selector: str) -> Optional[str]:
     return None
 
 
+def pod_to_dict(pod: client.V1Pod) -> Dict[str, Any]:
+    """Convert K8s pod object to serializable dict for phase calculation."""
+    container_statuses = []
+    for cs in (pod.status.container_statuses or []):
+        state = "unknown"
+        state_detail = None
+        if cs.state:
+            if cs.state.running:
+                state = "running"
+            elif cs.state.waiting:
+                state = "waiting"
+                state_detail = cs.state.waiting.reason if cs.state.waiting else None
+            elif cs.state.terminated:
+                state = "terminated"
+                state_detail = cs.state.terminated.reason if cs.state.terminated else None
+        container_statuses.append({
+            "name": cs.name,
+            "ready": cs.ready or False,
+            "state": state,
+            "state_detail": state_detail,
+            "restart_count": cs.restart_count or 0
+        })
+
+    return {
+        "name": pod.metadata.name,
+        "phase": pod.status.phase if pod.status else "Unknown",
+        "containers": container_statuses,
+        "labels": dict(pod.metadata.labels) if pod.metadata.labels else {},
+    }
+
+
 async def get_pod_logs(
     namespace: str,
     pod_name: str,

@@ -4,8 +4,9 @@ from fastapi import HTTPException
 # Kubernetes namespace naming rules: lowercase alphanumeric, hyphens allowed, max 63 chars
 NAMESPACE_PATTERN = re.compile(r'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$')
 
-# n8n version pattern: major.minor.patch
-VERSION_PATTERN = re.compile(r'^\d+\.\d+\.\d+$')
+# n8n version pattern: major.minor.patch with optional pre-release suffix
+# Examples: 1.85.0, 1.86.0-beta.1, 1.86.0-rc.1
+VERSION_PATTERN = re.compile(r'^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$')
 
 # Safe identifier pattern (for pod names, container names, snapshot names)
 IDENTIFIER_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$')

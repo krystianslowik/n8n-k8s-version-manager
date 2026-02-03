@@ -1,8 +1,28 @@
+export type DeploymentPhase =
+  | 'db-starting'
+  | 'n8n-starting'
+  | 'workers-starting'
+  | 'running'
+  | 'failed'
+  | 'unknown'
+
+export interface DeploymentPhaseInfo {
+  phase: DeploymentPhase
+  label: string
+  message?: string
+  failed_pod?: string
+  reason?: string
+  pods_ready?: number
+  pods_total?: number
+}
+
 export interface Deployment {
   namespace: string
   name?: string
   version: string
   status: 'running' | 'pending' | 'failed' | 'unknown'
+  phase?: DeploymentPhase  // Granular deployment phase
+  phase_info?: DeploymentPhaseInfo  // Detailed phase information
   mode: 'queue' | 'regular' | ''
   url?: string  // Optional - may not exist for new deployments
   isolated_db: boolean

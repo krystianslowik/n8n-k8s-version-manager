@@ -51,12 +51,10 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { useDebounce } from '@/lib/hooks'
+import { useDebounce, useDeploymentStream } from '@/lib/hooks'
 import { HelmValuesEditor } from '@/components/helm-values-editor'
 import { RefreshButton } from '@/components/refresh-button'
-import type { HelmValues, K8sEvent, PodStatus } from '@/lib/types'
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+import type { HelmValues } from '@/lib/types'
 
 interface DeployDrawerProps {
   open: boolean
@@ -71,10 +69,25 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
   const [snapshotPopoverOpen, setSnapshotPopoverOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [helmValues, setHelmValues] = useState<HelmValues>({})
+  const [trackingNamespace, setTrackingNamespace] = useState<string | null>(null)
 
   const debouncedSearch = useDebounce(searchQuery, 300)
 
   const queryClient = useQueryClient()
+
+  // SSE stream for real-time deployment tracking
+  useDeploymentStream({
+    namespace: trackingNamespace || '',
+    enabled: !!trackingNamespace,
+    onComplete: () => {
+      queryClient.invalidateQueries({ queryKey: ['deployments'] })
+      setTrackingNamespace(null)
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['deployments'] })
+      setTrackingNamespace(null)
+    },
+  })
 
   // Data is prefetched on page load, so it should be immediately available
   const { data: availableVersions, isLoading: isLoadingVersions, isFetching: isFetchingVersions, refetch: refetchVersions } = useQuery({
@@ -135,71 +148,6 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
 
   const isSearching = searchQuery !== debouncedSearch
 
-  const trackDeploymentProgress = async (namespace: string, versionStr: string) => {
-    const toastId = toast.loading('Deploying...', {
-      description: 'Creating namespace and resources...',
-    })
-
-    // Poll for up to 3 minutes (90 iterations * 2s)
-    for (let i = 0; i < 90; i++) {
-      await sleep(2000)
-
-      try {
-        const [eventsRes, podsRes] = await Promise.all([
-          api.getNamespaceEvents(namespace, 10),
-          api.getNamespacePods(namespace),
-        ])
-
-        const events = eventsRes.events || []
-        const pods = podsRes.pods || []
-
-        // Find latest significant event
-        const latestEvent = events[0]
-        if (latestEvent) {
-          const msg = latestEvent.message.length > 60
-            ? latestEvent.message.slice(0, 57) + '...'
-            : latestEvent.message
-          toast.loading('Deploying...', {
-            id: toastId,
-            description: msg,
-          })
-        }
-
-        // Check if all pods are running
-        const allRunning = pods.length > 0 && pods.every((p: PodStatus) => p.phase === 'Running')
-        if (allRunning) {
-          toast.success('Deployment complete', {
-            id: toastId,
-            description: `n8n ${versionStr} is now running (${pods.length} pod${pods.length !== 1 ? 's' : ''})`,
-          })
-          queryClient.invalidateQueries({ queryKey: ['deployments'] })
-          return
-        }
-
-        // Check for failures
-        const failed = events.find((e: K8sEvent) =>
-          e.type === 'Warning' &&
-          ['Failed', 'BackOff', 'ErrImagePull', 'ImagePullBackOff'].includes(e.reason)
-        )
-        if (failed) {
-          toast.warning('Deployment issue', {
-            id: toastId,
-            description: failed.message.slice(0, 80),
-          })
-          // Don't return - keep tracking, it might recover
-        }
-      } catch {
-        // Namespace might not exist yet, continue polling
-      }
-    }
-
-    // Timeout
-    toast.warning('Deployment taking longer than expected', {
-      id: toastId,
-      description: 'Check the deployment details for more info',
-    })
-  }
-
   const deployMutation = useMutation({
     mutationFn: api.deployVersion,
     onSuccess: (data) => {
@@ -212,8 +160,8 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
         setHelmValues({})
         queryClient.invalidateQueries({ queryKey: ['deployments'] })
 
-        // Start tracking progress in background
-        trackDeploymentProgress(namespace, version)
+        // Start SSE tracking for real-time progress
+        setTrackingNamespace(namespace)
 
         // Track activity
         addActivity('deployed', `v${version}`)

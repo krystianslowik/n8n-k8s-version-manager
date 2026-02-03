@@ -49,14 +49,30 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { addActivity } from '@/lib/activity'
-import type { Deployment } from '@/lib/types'
-import { getAgeSeconds, formatAgeFromDate } from '@/lib/format'
+import type { Deployment, DeploymentPhase } from '@/lib/types'
+import { formatAgeFromDate } from '@/lib/format'
 import { CreateSnapshotDialog } from './create-snapshot-dialog'
 import { DeploymentDetailsDrawer } from './deployment-details-drawer'
 import { QueryErrorState } from '@/components/error-boundary'
 
+// Phase-based status configuration
+const PHASE_CONFIG: Record<DeploymentPhase | string, {
+  variant: 'default' | 'secondary' | 'destructive' | 'outline'
+  dotClass: string
+  label: string
+  pulse?: boolean
+}> = {
+  'db-starting': { variant: 'secondary', dotClass: 'bg-blue-500', label: 'DB starting', pulse: true },
+  'n8n-starting': { variant: 'secondary', dotClass: 'bg-amber-500', label: 'n8n starting', pulse: true },
+  'workers-starting': { variant: 'secondary', dotClass: 'bg-purple-500', label: 'Workers', pulse: true },
+  'running': { variant: 'default', dotClass: 'bg-emerald-500', label: 'Running' },
+  'failed': { variant: 'destructive', dotClass: 'bg-red-500', label: 'Failed' },
+  'pending': { variant: 'secondary', dotClass: 'bg-amber-500', label: 'Pending', pulse: true },
+  'unknown': { variant: 'outline', dotClass: 'bg-zinc-400', label: 'Unknown' },
+}
+
 // Status indicator with animated dot
-function StatusBadge({ status, isDeleting }: { status: string; isDeleting: boolean }) {
+function StatusBadge({ status, phase, isDeleting }: { status: string; phase?: DeploymentPhase; isDeleting: boolean }) {
   if (isDeleting) {
     return (
       <Badge variant="secondary" className="gap-1.5">
@@ -64,28 +80,22 @@ function StatusBadge({ status, isDeleting }: { status: string; isDeleting: boole
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
         </span>
-        deleting
+        Deleting
       </Badge>
     )
   }
 
-  const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; dotClass: string; pulse?: boolean }> = {
-    running: { variant: 'default', dotClass: 'bg-emerald-500' },
-    starting: { variant: 'secondary', dotClass: 'bg-amber-500', pulse: true },
-    pending: { variant: 'secondary', dotClass: 'bg-amber-500', pulse: true },
-    failed: { variant: 'destructive', dotClass: 'bg-red-500' },
-    unknown: { variant: 'outline', dotClass: 'bg-zinc-400' },
-  }
-
-  const { variant, dotClass, pulse } = config[status] || config.unknown
+  // Use phase if available, otherwise fall back to status
+  const displayKey = phase || status || 'unknown'
+  const config = PHASE_CONFIG[displayKey] || PHASE_CONFIG.unknown
 
   return (
-    <Badge variant={variant} className="gap-1.5">
-      <span className={`relative flex h-2 w-2`}>
-        {pulse && <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${dotClass} opacity-75`} />}
-        <span className={`relative inline-flex rounded-full h-2 w-2 ${dotClass}`} />
+    <Badge variant={config.variant} className="gap-1.5">
+      <span className="relative flex h-2 w-2">
+        {config.pulse && <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${config.dotClass} opacity-75`} />}
+        <span className={`relative inline-flex rounded-full h-2 w-2 ${config.dotClass}`} />
       </span>
-      {status}
+      {config.label}
     </Badge>
   )
 }
@@ -237,13 +247,11 @@ export function DeploymentsTable({ deployments, isLoading, isError, onRetry, onD
                   </div>
                 </TableCell>
                 <TableCell>
-                  {(() => {
-                    const isDeleting = deletingNamespace === d.namespace
-                    const ageSeconds = getAgeSeconds(d.created_at)
-                    const isStarting = ageSeconds < 90
-                    const displayStatus = isStarting ? 'starting' : (d.status || 'unknown')
-                    return <StatusBadge status={displayStatus} isDeleting={isDeleting} />
-                  })()}
+                  <StatusBadge
+                    status={d.status || 'unknown'}
+                    phase={d.phase}
+                    isDeleting={deletingNamespace === d.namespace}
+                  />
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1 text-muted-foreground text-sm">
