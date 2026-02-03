@@ -113,6 +113,8 @@ export function useDeployVersion(
   const [progress, setProgress] = useState<DeployResponse | null>(null)
   const [isDeploying, setIsDeploying] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const optionsRef = useRef(options)
+  useEffect(() => { optionsRef.current = options }, [options])
 
   const deploy = useCallback(
     async (request: Pick<DeployRequest, 'version' | 'mode' | 'snapshot'>) => {
@@ -128,7 +130,7 @@ export function useDeployVersion(
 
         for await (const progressUpdate of stream) {
           setProgress(progressUpdate)
-          options?.onProgress?.(progressUpdate)
+          optionsRef.current?.onProgress?.(progressUpdate)
 
           if (progressUpdate.completed) {
             // Invalidate queries on completion
@@ -136,13 +138,13 @@ export function useDeployVersion(
 
             if (!progressUpdate.success || progressUpdate.error) {
               const error = new Error(progressUpdate.error || 'Deployment failed')
-              options?.onError?.(error)
+              optionsRef.current?.onError?.(error)
               throw error
             } else {
               // Extract namespace from request or response
               const namespace = progressUpdate.deployment?.namespace ||
                 `n8n-v${request.version.replace(/\./g, '-')}`
-              options?.onSuccess?.(namespace, progressUpdate.deployment)
+              optionsRef.current?.onSuccess?.(namespace, progressUpdate.deployment)
             }
           }
         }
@@ -152,14 +154,14 @@ export function useDeployVersion(
           return
         }
         const err = error instanceof Error ? error : new Error(String(error))
-        options?.onError?.(err)
+        optionsRef.current?.onError?.(err)
         throw err
       } finally {
         setIsDeploying(false)
         abortControllerRef.current = null
       }
     },
-    [queryClient, options]
+    [queryClient]
   )
 
   const cancel = useCallback(() => {
@@ -217,6 +219,8 @@ export function useWatchDeploymentStatus(
   const [isWatching, setIsWatching] = useState(false)
   const [error, setError] = useState<Error | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const optionsRef = useRef(options)
+  useEffect(() => { optionsRef.current = options }, [options])
 
   const startWatching = useCallback(async () => {
     if (!namespace) return
@@ -234,7 +238,7 @@ export function useWatchDeploymentStatus(
       for await (const statusUpdate of stream) {
         if (statusUpdate.deployment) {
           setDeployment(statusUpdate.deployment)
-          options?.onUpdate?.(statusUpdate.deployment)
+          optionsRef.current?.onUpdate?.(statusUpdate.deployment)
         }
       }
     } catch (err) {
@@ -245,7 +249,7 @@ export function useWatchDeploymentStatus(
       setIsWatching(false)
       abortControllerRef.current = null
     }
-  }, [namespace, options])
+  }, [namespace])
 
   const stopWatching = useCallback(() => {
     abortControllerRef.current?.abort()
@@ -271,6 +275,8 @@ export function useWatchDeploymentStatus(
   }
 }
 
+const MAX_LOG_ENTRIES = 1000
+
 /**
  * Stream deployment logs in real-time
  */
@@ -289,6 +295,8 @@ export function useDeploymentLogs(
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<Error | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const optionsRef = useRef(options)
+  useEffect(() => { optionsRef.current = options }, [options])
 
   const startStreaming = useCallback(async () => {
     if (!namespace) return
@@ -301,17 +309,22 @@ export function useDeploymentLogs(
       const stream = versionClient.streamLogs(
         {
           namespace,
-          podName: options?.podName,
-          container: options?.container,
-          tailLines: options?.tailLines ?? 100,
-          follow: options?.follow ?? true,
+          podName: optionsRef.current?.podName,
+          container: optionsRef.current?.container,
+          tailLines: optionsRef.current?.tailLines ?? 100,
+          follow: optionsRef.current?.follow ?? true,
         },
         { signal: abortControllerRef.current.signal }
       )
 
       for await (const logEntry of stream) {
-        setLogs((prev) => [...prev, logEntry])
-        options?.onLog?.(logEntry)
+        setLogs((prev) => {
+          const newLogs = [...prev, logEntry]
+          return newLogs.length > MAX_LOG_ENTRIES
+            ? newLogs.slice(-MAX_LOG_ENTRIES)
+            : newLogs
+        })
+        optionsRef.current?.onLog?.(logEntry)
       }
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
@@ -321,7 +334,7 @@ export function useDeploymentLogs(
       setIsStreaming(false)
       abortControllerRef.current = null
     }
-  }, [namespace, options])
+  }, [namespace])
 
   const stopStreaming = useCallback(() => {
     abortControllerRef.current?.abort()

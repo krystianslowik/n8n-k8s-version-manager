@@ -271,11 +271,30 @@ class VersionServicer(version_pb2_grpc.VersionServiceServicer):
                 success=False
             )
 
-            # Run deployment
-            result = subprocess.run(cmd, capture_output=True, text=True, cwd="/workspace", timeout=120)
+            # Run deployment (async to avoid blocking event loop)
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd="/workspace"
+                )
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=120)
+                stdout = stdout_bytes.decode() if stdout_bytes else ""
+                stderr = stderr_bytes.decode() if stderr_bytes else ""
+                returncode = proc.returncode
+            except asyncio.TimeoutError:
+                yield version_pb2.DeployResponse(
+                    phase="failed",
+                    message="Deployment timed out after 120 seconds",
+                    completed=True,
+                    success=False,
+                    error="Deployment timed out"
+                )
+                return
 
-            if result.returncode != 0:
-                error_msg = result.stderr.strip() if result.stderr.strip() else result.stdout.strip()
+            if returncode != 0:
+                error_msg = stderr.strip() if stderr.strip() else stdout.strip()
                 if not error_msg:
                     error_msg = "Deployment failed with no error message"
 
@@ -308,6 +327,7 @@ class VersionServicer(version_pb2_grpc.VersionServiceServicer):
 
             # Watch for deployment completion
             final_phase = "unknown"
+            phase_event = {}  # Initialize to prevent NameError if no events yielded
             async for phase_event in self._watch_deployment_internal(namespace):
                 yield version_pb2.DeployResponse(
                     phase=phase_event.get("phase", "unknown"),
@@ -353,7 +373,7 @@ class VersionServicer(version_pb2_grpc.VersionServiceServicer):
                     error=phase_event.get("reason", "Deployment failed")
                 )
 
-        except subprocess.TimeoutExpired:
+        except asyncio.TimeoutError:
             yield version_pb2.DeployResponse(
                 phase="failed",
                 message="Deployment timed out",
@@ -387,15 +407,19 @@ class VersionServicer(version_pb2_grpc.VersionServiceServicer):
             if not await k8s.namespace_exists(namespace):
                 await context.abort(grpc.StatusCode.NOT_FOUND, f"Namespace {namespace} not found")
 
-            # Uninstall Helm release
-            helm_result = subprocess.run(
-                ["helm", "uninstall", namespace, "--namespace", namespace, "--wait"],
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            if helm_result.returncode != 0 and "not found" not in helm_result.stderr.lower():
-                logger.warning(f"Helm uninstall warning: {helm_result.stderr}")
+            # Uninstall Helm release (async to avoid blocking event loop)
+            try:
+                helm_proc = await asyncio.create_subprocess_exec(
+                    "helm", "uninstall", namespace, "--namespace", namespace, "--wait",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                helm_stdout, helm_stderr = await asyncio.wait_for(helm_proc.communicate(), timeout=60)
+                helm_stderr_str = helm_stderr.decode() if helm_stderr else ""
+                if helm_proc.returncode != 0 and "not found" not in helm_stderr_str.lower():
+                    logger.warning(f"Helm uninstall warning: {helm_stderr_str}")
+            except asyncio.TimeoutError:
+                await context.abort(grpc.StatusCode.DEADLINE_EXCEEDED, "Helm uninstall timed out")
 
             # Delete namespace
             await k8s.delete_namespace(namespace, wait=True, timeout=60)
@@ -407,7 +431,7 @@ class VersionServicer(version_pb2_grpc.VersionServiceServicer):
 
         except grpc.aio.AbortError:
             raise
-        except subprocess.TimeoutExpired:
+        except asyncio.TimeoutError:
             await context.abort(grpc.StatusCode.DEADLINE_EXCEEDED, "Helm uninstall timed out")
         except Exception as e:
             logger.error(f"Delete error: {e}")
@@ -495,7 +519,7 @@ class VersionServicer(version_pb2_grpc.VersionServiceServicer):
                     break
 
         except asyncio.CancelledError:
-            pass
+            raise  # Re-raise for proper cancellation propagation
         finally:
             await w.close()
 

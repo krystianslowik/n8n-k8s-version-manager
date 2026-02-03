@@ -2,10 +2,10 @@
 gRPC Snapshot Service implementation.
 Handles snapshot listing, creation, deletion, and restore operations.
 """
+import asyncio
 import logging
 import os
 import re
-import subprocess
 import sys
 import tempfile
 from typing import List, Dict, Any, AsyncIterator
@@ -104,18 +104,20 @@ class SnapshotServicer(snapshot_pb2_grpc.SnapshotServiceServicer):
         try:
             cmd = ["/workspace/scripts/list-snapshots.sh"]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
                 cwd="/workspace"
             )
+            stdout_bytes, stderr_bytes = await proc.communicate()
+            stdout = stdout_bytes.decode() if stdout_bytes else ""
 
-            if result.returncode != 0:
+            if proc.returncode != 0:
                 # Infrastructure not ready, return empty list
                 return snapshot_pb2.ListSnapshotsResponse(snapshots=[])
 
-            snapshots_data = parse_snapshots_output(result.stdout)
+            snapshots_data = parse_snapshots_output(stdout)
 
             snapshots = []
             for s in snapshots_data:
@@ -184,10 +186,18 @@ class SnapshotServicer(snapshot_pb2_grpc.SnapshotServiceServicer):
                 success=False
             )
 
-            result = subprocess.run(cmd, capture_output=True, text=True, cwd="/workspace")
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd="/workspace"
+            )
+            stdout_bytes, stderr_bytes = await proc.communicate()
+            stdout = stdout_bytes.decode() if stdout_bytes else ""
+            stderr = stderr_bytes.decode() if stderr_bytes else ""
 
-            if result.returncode != 0:
-                error_msg = result.stderr.strip() or result.stdout.strip() or "Snapshot creation failed"
+            if proc.returncode != 0:
+                error_msg = stderr.strip() or stdout.strip() or "Snapshot creation failed"
                 yield snapshot_pb2.CreateSnapshotResponse(
                     phase="failed",
                     message=error_msg,
@@ -241,16 +251,19 @@ class SnapshotServicer(snapshot_pb2_grpc.SnapshotServiceServicer):
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "Invalid filename")
 
         try:
-            result = subprocess.run(
-                ["/workspace/scripts/delete-snapshot.sh", filename],
-                capture_output=True,
-                text=True,
-                cwd="/workspace",
-                input="yes\n"
+            proc = await asyncio.create_subprocess_exec(
+                "/workspace/scripts/delete-snapshot.sh", filename,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd="/workspace"
             )
+            stdout_bytes, stderr_bytes = await proc.communicate(input=b"yes\n")
+            stdout = stdout_bytes.decode() if stdout_bytes else ""
+            stderr = stderr_bytes.decode() if stderr_bytes else ""
 
-            if result.returncode != 0:
-                error_msg = result.stderr.strip() or result.stdout.strip() or "Delete failed"
+            if proc.returncode != 0:
+                error_msg = stderr.strip() or stdout.strip() or "Delete failed"
                 await context.abort(grpc.StatusCode.INTERNAL, error_msg)
 
             return snapshot_pb2.DeleteSnapshotResponse(
@@ -306,16 +319,20 @@ class SnapshotServicer(snapshot_pb2_grpc.SnapshotServiceServicer):
                 success=False
             )
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd="/workspace",
-                input="yes\n" if not target_namespace else None
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE if not target_namespace else None,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd="/workspace"
             )
+            stdin_data = b"yes\n" if not target_namespace else None
+            stdout_bytes, stderr_bytes = await proc.communicate(input=stdin_data)
+            stdout = stdout_bytes.decode() if stdout_bytes else ""
+            stderr = stderr_bytes.decode() if stderr_bytes else ""
 
-            if result.returncode != 0:
-                error_msg = result.stderr.strip() or result.stdout.strip() or "Restore failed"
+            if proc.returncode != 0:
+                error_msg = stderr.strip() or stdout.strip() or "Restore failed"
                 yield snapshot_pb2.RestoreSnapshotResponse(
                     phase="failed",
                     message=error_msg,
