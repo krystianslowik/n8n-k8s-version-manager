@@ -1,0 +1,53 @@
+syntax = "proto3";
+package n8n.manager.v1;
+
+option go_package = "github.com/n8n-manager/proto/n8n_manager/v1;n8n_managerv1";
+
+import "google/protobuf/timestamp.proto";
+
+// Deployment represents a deployed n8n instance in Kubernetes
+message Deployment {
+  string namespace = 1;
+  string version = 2;
+  string mode = 3;
+  string status = 4;
+  int32 port = 5;
+  string url = 6;
+  DeploymentPhase phase = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+// DeploymentPhase represents the current deployment phase with pod details
+message DeploymentPhase {
+  string phase = 1;
+  string label = 2;
+  repeated PodStatus pods = 3;
+}
+
+// PodStatus represents the status of a single pod
+message PodStatus {
+  string name = 1;
+  string phase = 2;
+  bool ready = 3;
+  int32 restart_count = 4;
+}
+
+// Snapshot represents a database snapshot
+message Snapshot {
+  string name = 1;
+  string source_namespace = 2;
+  int64 size_bytes = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// ResourceUsage represents CPU and memory usage
+message ResourceUsage {
+  string cpu = 1;
+  string memory = 2;
+}
+
+// Error represents an error response
+message Error {
+  int32 code = 1;
+  string message = 2;
+}

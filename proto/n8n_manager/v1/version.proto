@@ -1,0 +1,141 @@
+syntax = "proto3";
+package n8n.manager.v1;
+
+option go_package = "github.com/n8n-manager/proto/n8n_manager/v1;n8n_managerv1";
+
+import "google/protobuf/timestamp.proto";
+import "n8n_manager/v1/common.proto";
+
+// VersionService manages n8n deployments
+service VersionService {
+  // List all deployed n8n versions
+  rpc List(ListDeploymentsRequest) returns (ListDeploymentsResponse);
+
+  // Get details of a specific deployment
+  rpc Get(GetDeploymentRequest) returns (GetDeploymentResponse);
+
+  // Deploy a new n8n version (server streaming for progress updates)
+  rpc Deploy(DeployRequest) returns (stream DeployResponse);
+
+  // Delete a deployment
+  rpc Delete(DeleteDeploymentRequest) returns (DeleteDeploymentResponse);
+
+  // Watch deployment status changes (server streaming)
+  rpc WatchStatus(WatchStatusRequest) returns (stream WatchStatusResponse);
+
+  // Stream logs from a deployment (server streaming)
+  rpc StreamLogs(StreamLogsRequest) returns (stream LogEntry);
+
+  // Get deployment configuration
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
+
+  // Get deployment events
+  rpc GetEvents(GetEventsRequest) returns (GetEventsResponse);
+}
+
+// ListDeploymentsRequest is the request for listing deployments
+message ListDeploymentsRequest {}
+
+// ListDeploymentsResponse contains all deployments
+message ListDeploymentsResponse {
+  repeated Deployment deployments = 1;
+}
+
+// GetDeploymentRequest requests a specific deployment by namespace
+message GetDeploymentRequest {
+  string namespace = 1;
+}
+
+// GetDeploymentResponse contains the deployment details
+message GetDeploymentResponse {
+  Deployment deployment = 1;
+}
+
+// DeployRequest contains parameters for deploying a new n8n version
+message DeployRequest {
+  string version = 1;
+  string mode = 2; // "regular" or "queue"
+  optional string snapshot = 3; // snapshot name to restore from
+}
+
+// DeployResponse streams deployment progress
+message DeployResponse {
+  string phase = 1;
+  string message = 2;
+  bool completed = 3;
+  bool success = 4;
+  optional Deployment deployment = 5;
+  optional string error = 6;
+}
+
+// DeleteDeploymentRequest requests deletion of a deployment
+message DeleteDeploymentRequest {
+  string namespace = 1;
+}
+
+// DeleteDeploymentResponse confirms deletion
+message DeleteDeploymentResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// WatchStatusRequest requests status updates for a deployment
+message WatchStatusRequest {
+  string namespace = 1;
+}
+
+// WatchStatusResponse streams status updates
+message WatchStatusResponse {
+  Deployment deployment = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+// StreamLogsRequest requests log streaming
+message StreamLogsRequest {
+  string namespace = 1;
+  optional string pod_name = 2;
+  optional string container = 3;
+  optional int32 tail_lines = 4;
+  optional bool follow = 5;
+}
+
+// LogEntry represents a single log entry
+message LogEntry {
+  string pod_name = 1;
+  string container = 2;
+  string message = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+// GetConfigRequest requests deployment configuration
+message GetConfigRequest {
+  string namespace = 1;
+}
+
+// GetConfigResponse contains deployment configuration
+message GetConfigResponse {
+  map<string, string> config = 1;
+  map<string, string> secrets = 2; // masked values
+}
+
+// GetEventsRequest requests deployment events
+message GetEventsRequest {
+  string namespace = 1;
+  optional int32 limit = 2;
+}
+
+// GetEventsResponse contains deployment events
+message GetEventsResponse {
+  repeated Event events = 1;
+}
+
+// Event represents a Kubernetes event
+message Event {
+  string type = 1;
+  string reason = 2;
+  string message = 3;
+  string object = 4;
+  google.protobuf.Timestamp first_timestamp = 5;
+  google.protobuf.Timestamp last_timestamp = 6;
+  int32 count = 7;
+}

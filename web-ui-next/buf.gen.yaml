@@ -1,0 +1,8 @@
+version: v1
+plugins:
+  - plugin: es
+    out: lib/generated
+    opt: target=ts
+  - plugin: connect-es
+    out: lib/generated
+    opt: target=ts

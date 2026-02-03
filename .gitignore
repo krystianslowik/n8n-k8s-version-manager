@@ -43,3 +43,7 @@ node_modules/
 
 # Planning docs
 docs/plans/
+
+# Generated protobuf/gRPC code
+api/generated/n8n_manager/
+web-ui-next/lib/generated/n8n_manager/

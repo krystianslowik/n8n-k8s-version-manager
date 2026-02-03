@@ -1,0 +1,73 @@
+syntax = "proto3";
+package n8n.manager.v1;
+
+option go_package = "github.com/n8n-manager/proto/n8n_manager/v1;n8n_managerv1";
+
+import "google/protobuf/timestamp.proto";
+import "n8n_manager/v1/common.proto";
+
+// InfrastructureService manages shared infrastructure components
+service InfrastructureService {
+  // Get status of shared infrastructure (Redis, backup storage)
+  rpc GetStatus(GetInfrastructureStatusRequest) returns (GetInfrastructureStatusResponse);
+
+  // Get cluster resource usage
+  rpc GetClusterResources(GetClusterResourcesRequest) returns (GetClusterResourcesResponse);
+}
+
+// GetInfrastructureStatusRequest is the request for infrastructure status
+message GetInfrastructureStatusRequest {}
+
+// GetInfrastructureStatusResponse contains infrastructure component statuses
+message GetInfrastructureStatusResponse {
+  ComponentStatus redis = 1;
+  ComponentStatus backup_storage = 2;
+  google.protobuf.Timestamp checked_at = 3;
+}
+
+// ComponentStatus represents the status of an infrastructure component
+message ComponentStatus {
+  string name = 1;
+  bool healthy = 2;
+  string status = 3;
+  string message = 4;
+  map<string, string> details = 5;
+}
+
+// GetClusterResourcesRequest is the request for cluster resources
+message GetClusterResourcesRequest {}
+
+// GetClusterResourcesResponse contains cluster resource information
+message GetClusterResourcesResponse {
+  repeated NodeResources nodes = 1;
+  ClusterSummary summary = 2;
+}
+
+// NodeResources represents resources of a single node
+message NodeResources {
+  string name = 1;
+  ResourceCapacity capacity = 2;
+  ResourceCapacity allocatable = 3;
+  ResourceUsage usage = 4;
+  map<string, string> labels = 5;
+}
+
+// ResourceCapacity represents resource capacity values
+message ResourceCapacity {
+  string cpu = 1;
+  string memory = 2;
+  string pods = 3;
+  string ephemeral_storage = 4;
+}
+
+// ClusterSummary contains aggregated cluster resource information
+message ClusterSummary {
+  int32 total_nodes = 1;
+  int32 ready_nodes = 2;
+  string total_cpu = 3;
+  string total_memory = 4;
+  string used_cpu = 5;
+  string used_memory = 6;
+  float cpu_utilization_percent = 7;
+  float memory_utilization_percent = 8;
+}

@@ -1,0 +1,71 @@
+syntax = "proto3";
+package n8n.manager.v1;
+
+option go_package = "github.com/n8n-manager/proto/n8n_manager/v1;n8n_managerv1";
+
+import "n8n_manager/v1/common.proto";
+
+// SnapshotService manages database snapshots
+service SnapshotService {
+  // List all available snapshots
+  rpc List(ListSnapshotsRequest) returns (ListSnapshotsResponse);
+
+  // Create a new snapshot from a deployment
+  rpc Create(CreateSnapshotRequest) returns (stream CreateSnapshotResponse);
+
+  // Delete a snapshot
+  rpc Delete(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
+
+  // Restore a snapshot to a deployment (server streaming for progress)
+  rpc Restore(RestoreSnapshotRequest) returns (stream RestoreSnapshotResponse);
+}
+
+// ListSnapshotsRequest is the request for listing snapshots
+message ListSnapshotsRequest {}
+
+// ListSnapshotsResponse contains all snapshots
+message ListSnapshotsResponse {
+  repeated Snapshot snapshots = 1;
+}
+
+// CreateSnapshotRequest contains parameters for creating a snapshot
+message CreateSnapshotRequest {
+  string name = 1;
+  string source_namespace = 2;
+}
+
+// CreateSnapshotResponse streams snapshot creation progress
+message CreateSnapshotResponse {
+  string phase = 1;
+  string message = 2;
+  bool completed = 3;
+  bool success = 4;
+  optional Snapshot snapshot = 5;
+  optional string error = 6;
+}
+
+// DeleteSnapshotRequest requests deletion of a snapshot
+message DeleteSnapshotRequest {
+  string name = 1;
+}
+
+// DeleteSnapshotResponse confirms deletion
+message DeleteSnapshotResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// RestoreSnapshotRequest contains parameters for restoring a snapshot
+message RestoreSnapshotRequest {
+  string snapshot_name = 1;
+  string target_namespace = 2;
+}
+
+// RestoreSnapshotResponse streams restore progress
+message RestoreSnapshotResponse {
+  string phase = 1;
+  string message = 2;
+  bool completed = 3;
+  bool success = 4;
+  optional string error = 5;
+}
