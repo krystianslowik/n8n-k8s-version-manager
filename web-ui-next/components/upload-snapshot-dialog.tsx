@@ -2,7 +2,8 @@
 
 import { useState, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api' // Keep REST for file upload
+import { grpcQueryKeys } from '@/lib/grpc-hooks'
 import {
   Dialog,
   DialogContent,
@@ -39,7 +40,7 @@ export function UploadSnapshotDialog({
         toast.success('Snapshot uploaded', {
           description: data.message,
         })
-        queryClient.invalidateQueries({ queryKey: ['snapshots'] })
+        queryClient.invalidateQueries({ queryKey: grpcQueryKeys.snapshots })
         handleClose()
       } else {
         toast.error('Upload failed', {
