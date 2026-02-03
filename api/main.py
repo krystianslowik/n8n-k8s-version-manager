@@ -51,7 +51,24 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok"}
+    """Verify API can communicate with Kubernetes cluster."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["kubectl", "cluster-info", "--request-timeout=2s"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode != 0:
+            return {"status": "degraded", "error": "Cannot reach Kubernetes cluster"}
+        return {"status": "ok"}
+    except subprocess.TimeoutExpired:
+        return {"status": "degraded", "error": "Kubernetes cluster timeout"}
+    except FileNotFoundError:
+        return {"status": "degraded", "error": "kubectl not found"}
+    except Exception as e:
+        return {"status": "degraded", "error": str(e)}
 
 from versions import router as versions_router
 from snapshots import router as snapshots_router
