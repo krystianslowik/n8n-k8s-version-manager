@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/accordion'
 import { DatabaseIcon, RotateCcwIcon, UploadIcon } from 'lucide-react'
 import { toast } from 'sonner'
-import { useState, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { RestoreSnapshotDialog } from './restore-snapshot-dialog'
 import { UploadSnapshotDialog } from './upload-snapshot-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -29,15 +29,21 @@ interface SnapshotsPanelProps {
 export function SnapshotsPanel({ snapshots, isLoading, isError, onRetry }: SnapshotsPanelProps) {
   const [restoreSnapshot, setRestoreSnapshot] = useState<string | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
-  const [accordionValue, setAccordionValue] = useState<string | undefined>(undefined)
+  const [userToggledAccordion, setUserToggledAccordion] = useState(false)
   const queryClient = useQueryClient()
 
-  // Auto-expand accordion when few snapshots exist
-  useEffect(() => {
+  // Auto-expand accordion when few snapshots exist (unless user has manually toggled)
+  const accordionValue = useMemo(() => {
+    if (userToggledAccordion) return undefined // Let user's choice persist
     if (snapshots && snapshots.length > 0 && snapshots.length <= 5) {
-      setAccordionValue('snapshots')
+      return 'snapshots'
     }
-  }, [snapshots])
+    return undefined
+  }, [snapshots, userToggledAccordion])
+
+  const handleAccordionChange = () => {
+    setUserToggledAccordion(true)
+  }
 
   const deleteMutation = useMutation({
     mutationFn: (filename: string) => api.deleteSnapshot(filename),
@@ -85,7 +91,7 @@ export function SnapshotsPanel({ snapshots, isLoading, isError, onRetry }: Snaps
           </Button>
         </CardHeader>
         <CardContent>
-          <Accordion type="single" collapsible value={accordionValue} onValueChange={setAccordionValue}>
+          <Accordion type="single" collapsible value={accordionValue} onValueChange={handleAccordionChange}>
             <AccordionItem value="snapshots" className="border-none">
               <AccordionTrigger className="hover:no-underline">
                 <span className="text-sm">

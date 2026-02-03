@@ -17,9 +17,16 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { QUERY_CONFIG } from '@/lib/query-config'
 
+function formatLastUpdated(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000)
+  if (seconds < 5) return 'just now'
+  if (seconds < 60) return `${seconds}s ago`
+  return `${Math.floor(seconds / 60)}m ago`
+}
+
 export default function Home() {
   const [deployDrawerOpen, setDeployDrawerOpen] = useState(false)
-  const { data: deployments, isLoading: isLoadingDeployments, isError: isErrorDeployments, isFetching, refetch: refetchDeployments } = useQuery({
+  const { data: deployments, isLoading: isLoadingDeployments, isError: isErrorDeployments, isFetching, refetch: refetchDeployments, dataUpdatedAt } = useQuery({
     queryKey: ['deployments'],
     queryFn: api.getDeployments,
     staleTime: QUERY_CONFIG.deployments.staleTime,
@@ -93,7 +100,14 @@ export default function Home() {
         {/* Deployments Table */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
-            <CardTitle>Active Deployments</CardTitle>
+            <div>
+              <CardTitle>Active Deployments</CardTitle>
+              {dataUpdatedAt > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Updated {formatLastUpdated(dataUpdatedAt)}
+                </p>
+              )}
+            </div>
             <RefreshButton onClick={() => refetchDeployments()} isLoading={isFetching} variant="outline" />
           </CardHeader>
           <CardContent>
