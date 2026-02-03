@@ -8,6 +8,7 @@ import json
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
+from validation import validate_namespace, validate_identifier
 
 router = APIRouter(prefix="/api/versions", tags=["versions"])
 
@@ -490,6 +491,8 @@ async def deploy_version(request: DeployRequest):
 @router.delete("/{namespace}")
 async def remove_version(namespace: str):
     """Remove a deployed n8n version by namespace."""
+    namespace = validate_namespace(namespace)
+
     try:
         # Check if namespace exists
         check_result = subprocess.run(
@@ -499,42 +502,42 @@ async def remove_version(namespace: str):
             timeout=5
         )
         if check_result.returncode != 0:
-            return {
-                "success": False,
-                "message": "Namespace not found",
-                "error": f"Namespace {namespace} does not exist"
-            }
+            raise HTTPException(status_code=404, detail=f"Namespace {namespace} not found")
 
         # Uninstall Helm release (use namespace as release name)
-        subprocess.run(
-            ["helm", "uninstall", namespace, "--namespace", namespace],
+        helm_result = subprocess.run(
+            ["helm", "uninstall", namespace, "--namespace", namespace, "--wait"],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=60
         )
+        # Log but don't fail if helm release doesn't exist
+        if helm_result.returncode != 0 and "not found" not in helm_result.stderr.lower():
+            logging.warning(f"Helm uninstall warning: {helm_result.stderr}")
 
-        # Delete namespace
+        # Delete namespace with wait
         result = subprocess.run(
-            ["kubectl", "delete", "namespace", namespace],
+            ["kubectl", "delete", "namespace", namespace, "--wait=true", "--timeout=60s"],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=90
         )
 
         if result.returncode != 0:
-            return {
-                "success": False,
-                "message": "Removal failed",
-                "error": result.stderr,
-                "output": result.stdout
-            }
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to delete namespace: {result.stderr}"
+            )
 
         return {
             "success": True,
-            "message": f"Namespace {namespace} removed",
-            "output": result.stdout
+            "message": f"Namespace {namespace} removed"
         }
 
+    except HTTPException:
+        raise
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Deletion timed out")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -542,6 +545,8 @@ async def remove_version(namespace: str):
 @router.get("/{namespace}/status")
 async def check_namespace_status(namespace: str):
     """Check if a namespace exists (for polling deletion status)."""
+    namespace = validate_namespace(namespace)
+
     try:
         result = subprocess.run(
             ["kubectl", "get", "namespace", namespace],
@@ -554,6 +559,8 @@ async def check_namespace_status(namespace: str):
             "exists": result.returncode == 0,
             "namespace": namespace
         }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Status check timed out")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -561,6 +568,8 @@ async def check_namespace_status(namespace: str):
 @router.get("/{namespace}/events")
 async def get_namespace_events(namespace: str, limit: int = 50):
     """Get K8s events for a namespace."""
+    namespace = validate_namespace(namespace)
+
     try:
         result = subprocess.run(
             ["kubectl", "get", "events", "-n", namespace,
@@ -602,6 +611,8 @@ async def get_namespace_events(namespace: str, limit: int = 50):
 @router.get("/{namespace}/pods")
 async def get_namespace_pods(namespace: str):
     """Get detailed pod status for a namespace."""
+    namespace = validate_namespace(namespace)
+
     try:
         result = subprocess.run(
             ["kubectl", "get", "pods", "-n", namespace, "-o", "json"],
@@ -656,6 +667,12 @@ async def get_namespace_pods(namespace: str):
 @router.get("/{namespace}/logs")
 async def get_namespace_logs(namespace: str, pod: Optional[str] = None, container: Optional[str] = None, tail: int = 100):
     """Get logs from pods in a namespace."""
+    namespace = validate_namespace(namespace)
+    if pod:
+        pod = validate_identifier(pod, "pod")
+    if container:
+        container = validate_identifier(container, "container")
+
     try:
         # If specific pod requested, get just that pod's logs
         if pod:
@@ -707,6 +724,8 @@ async def get_namespace_logs(namespace: str, pod: Optional[str] = None, containe
 @router.get("/{namespace}/config")
 async def get_namespace_config(namespace: str):
     """Get ConfigMap environment variables for a namespace."""
+    namespace = validate_namespace(namespace)
+
     try:
         # Get the n8n-config ConfigMap directly by name
         result = subprocess.run(
