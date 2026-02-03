@@ -545,9 +545,10 @@ async def deploy_version(request: DeployRequest):
 
         version_parts = request.version.split('.')
         # Include patch version in port calculation to avoid conflicts
-        # Formula: 30000 + major*100 + minor*10 + patch
-        # This gives unique ports for patch versions while staying within NodePort range
-        port = 30000 + (int(version_parts[0]) * 100) + (int(version_parts[1]) * 10) + int(version_parts[2])
+        # Formula: 30000 + major*1000 + minor*10 + patch
+        # Strips pre-release suffix (e.g., "8-exp" -> "8")
+        patch_str = version_parts[2].split('-')[0]
+        port = 30000 + (int(version_parts[0]) * 1000) + (int(version_parts[1]) * 10) + int(patch_str)
         url = f"http://localhost:{port}"
 
         return {
