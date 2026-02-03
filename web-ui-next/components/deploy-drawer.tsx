@@ -19,10 +19,11 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
 import {
   Popover,
   PopoverContent,
@@ -38,7 +39,6 @@ import {
 } from '@/components/ui/command'
 import {
   RocketIcon,
-  ChevronRightIcon,
   LayersIcon,
   ZapIcon,
   LoaderIcon,
@@ -47,6 +47,7 @@ import {
   ExternalLinkIcon,
   AlertTriangleIcon,
   RefreshCwIcon,
+  SettingsIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -69,7 +70,6 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
   const [snapshotPopoverOpen, setSnapshotPopoverOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [helmValues, setHelmValues] = useState<HelmValues>({})
-  const [configOpen, setConfigOpen] = useState(false)
 
   const debouncedSearch = useDebounce(searchQuery, 300)
 
@@ -451,20 +451,24 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
             </p>
           </div>
 
-          {/* Configuration Section */}
-          <Collapsible open={configOpen} onOpenChange={setConfigOpen}>
-            <CollapsibleTrigger className="flex items-center gap-2 text-sm hover:underline">
-              <ChevronRightIcon className={`h-4 w-4 transition-transform ${configOpen ? 'rotate-90' : ''}`} />
-              Configuration
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-4 border rounded-lg p-4 mt-2">
-              <HelmValuesEditor
-                value={helmValues}
-                onChange={setHelmValues}
-                isQueueMode={mode === 'queue'}
-              />
-            </CollapsibleContent>
-          </Collapsible>
+          {/* Configuration - Collapsible Accordion */}
+          <Accordion type="single" collapsible className="border-t pt-2">
+            <AccordionItem value="config" className="border-none">
+              <AccordionTrigger className="py-3 hover:no-underline">
+                <div className="flex items-center gap-2">
+                  <SettingsIcon className="h-4 w-4" />
+                  <span className="text-sm font-medium">Advanced Configuration</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="pt-2 pb-0">
+                <HelmValuesEditor
+                  value={helmValues}
+                  onChange={setHelmValues}
+                  isQueueMode={mode === 'queue'}
+                />
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
 
         {/* Capacity Warning */}
