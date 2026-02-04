@@ -37,14 +37,22 @@ def is_pod_running(pod: Dict) -> bool:
 
 
 def is_pod_failed(pod: Dict) -> bool:
-    """Check if pod is in a failed state."""
+    """Check if pod is in a persistent failed state (not transient startup errors)."""
     if pod.get("phase") == "Failed":
         return True
-    # Check for problematic container states
+    # Check for persistent problematic container states
     for container in pod.get("containers", []):
         state_detail = container.get("state_detail")
-        if state_detail in ["CrashLoopBackOff", "ErrImagePull", "ImagePullBackOff", "Error"]:
+        # Only these are persistent failures:
+        # - CrashLoopBackOff: container keeps crashing
+        # - ErrImagePull/ImagePullBackOff: can't pull image
+        if state_detail in ["CrashLoopBackOff", "ErrImagePull", "ImagePullBackOff"]:
             return True
+        # "Error" state is only a failure if pod has restarted multiple times
+        # (transient errors during startup are normal)
+        if state_detail == "Error" and container.get("restart_count", 0) >= 3:
+            return True
+        # High restart count indicates persistent issues
         if container.get("restart_count", 0) > 5:
             return True
     return False
