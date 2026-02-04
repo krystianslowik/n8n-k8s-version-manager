@@ -22,7 +22,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { RefreshButton } from '@/components/refresh-button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
@@ -87,7 +86,7 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
   const [showRestoreWarning, setShowRestoreWarning] = useState(false)
   const queryClient = useQueryClient()
 
-  const { data: pods, isLoading, refetch, isFetching } = useNamespacePods(namespace, {
+  const { data: pods, isLoading } = useNamespacePods(namespace, {
     staleTime: 5_000,
     refetchInterval: enabled ? 5_000 : false,
     enabled,
@@ -141,11 +140,8 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
     <div className="space-y-6">
       {/* Pods Section */}
       <div className="space-y-3">
-        <div className="flex justify-between items-center">
-          <span className="text-sm text-muted-foreground">
-            {podList.length} pod{podList.length !== 1 ? 's' : ''}
-          </span>
-          <RefreshButton onClick={() => refetch()} isLoading={isFetching} />
+        <div className="text-sm text-muted-foreground">
+          {podList.length} pod{podList.length !== 1 ? 's' : ''}
         </div>
 
         {podList.length === 0 ? (
@@ -270,7 +266,7 @@ function StatusTab({ namespace, enabled }: { namespace: string; enabled: boolean
 }
 
 function EventsTab({ namespace, enabled }: { namespace: string; enabled: boolean }) {
-  const { data: events, isLoading, refetch, isFetching } = useDeploymentEvents(namespace, 50, {
+  const { data: events, isLoading } = useDeploymentEvents(namespace, 50, {
     staleTime: 5_000,
     refetchInterval: enabled ? 5_000 : false,
     enabled,
@@ -289,7 +285,14 @@ function EventsTab({ namespace, enabled }: { namespace: string; enabled: boolean
     )
   }
 
-  const eventList = events || []
+  // Filter out noisy transient events (PVC binding delays are normal)
+  const eventList = (events || []).filter(event => {
+    // Hide FailedScheduling due to unbound PVCs - these resolve automatically
+    if (event.reason === 'FailedScheduling' && event.message?.includes('unbound immediate PersistentVolumeClaims')) {
+      return false
+    }
+    return true
+  })
 
   // Helper to format proto timestamp
   const formatEventTime = (event: typeof eventList[number]) => {
@@ -301,11 +304,8 @@ function EventsTab({ namespace, enabled }: { namespace: string; enabled: boolean
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-between items-center">
-        <span className="text-sm text-muted-foreground">
-          {eventList.length} event{eventList.length !== 1 ? 's' : ''}
-        </span>
-        <RefreshButton onClick={() => refetch()} isLoading={isFetching} />
+      <div className="text-sm text-muted-foreground">
+        {eventList.length} event{eventList.length !== 1 ? 's' : ''}
       </div>
 
       {eventList.length === 0 ? (
@@ -369,7 +369,7 @@ function LogsTab({ namespace, enabled }: { namespace: string; enabled: boolean }
   const actualPod = selectedPod === ALL_PODS ? undefined : selectedPod
   const actualContainer = selectedContainer === ALL_CONTAINERS ? undefined : selectedContainer
 
-  const { data: logs, isLoading, refetch, isFetching } = useNamespaceLogs(namespace, {
+  const { data: logs, isLoading } = useNamespaceLogs(namespace, {
     podName: actualPod,
     container: actualContainer,
     staleTime: 5_000,
@@ -418,8 +418,6 @@ function LogsTab({ namespace, enabled }: { namespace: string; enabled: boolean }
             </SelectContent>
           </Select>
         )}
-
-        <RefreshButton onClick={() => refetch()} isLoading={isFetching} className="ml-auto" />
       </div>
 
       {isLoading ? (
@@ -546,7 +544,7 @@ function ConfigTab({ namespace, enabled }: { namespace: string; enabled: boolean
   const [searchQuery, setSearchQuery] = useState('')
   const [openCategories, setOpenCategories] = useState<string[]>(['database', 'n8n'])
 
-  const { data, isLoading, refetch, isFetching } = useDeploymentConfig(namespace, {
+  const { data, isLoading } = useDeploymentConfig(namespace, {
     staleTime: 30_000,
     enabled,
   })
@@ -616,12 +614,9 @@ function ConfigTab({ namespace, enabled }: { namespace: string; enabled: boolean
         <span className="text-sm text-muted-foreground">
           {searchQuery ? `${totalFiltered} of ${totalCount}` : totalCount} variable{totalCount !== 1 ? 's' : ''}
         </span>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={handleToggleAll}>
-            {openCategories.length === nonEmptyCategories.length ? 'Collapse all' : 'Expand all'}
-          </Button>
-          <RefreshButton onClick={() => refetch()} isLoading={isFetching} />
-        </div>
+        <Button variant="ghost" size="sm" onClick={handleToggleAll}>
+          {openCategories.length === nonEmptyCategories.length ? 'Collapse all' : 'Expand all'}
+        </Button>
       </div>
 
       {/* Search input */}
