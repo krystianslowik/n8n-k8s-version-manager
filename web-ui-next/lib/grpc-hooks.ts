@@ -553,7 +553,9 @@ export function useCreateSnapshot(
  * Delete a snapshot
  */
 export function useDeleteSnapshot(
-  options?: UseMutationOptions<{ success: boolean; message: string }, Error, string>
+  options?: Omit<UseMutationOptions<{ success: boolean; message: string }, Error, string>, 'mutationFn' | 'onSuccess'> & {
+    onSuccess?: () => void
+  }
 ) {
   const queryClient = useQueryClient()
 
@@ -570,8 +572,10 @@ export function useDeleteSnapshot(
       )
       // Refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: grpcQueryKeys.snapshots })
+      // Call user-provided onSuccess if any
+      options?.onSuccess?.()
     },
-    ...options,
+    onError: options?.onError,
   })
 }
 
