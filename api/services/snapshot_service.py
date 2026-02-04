@@ -19,6 +19,12 @@ import grpc
 from google.protobuf import timestamp_pb2
 
 import k8s
+from snapshot_ops import (
+    list_snapshots,
+    create_snapshot,
+    delete_snapshot,
+    restore_snapshot,
+)
 from n8n_manager.v1 import snapshot_pb2
 from n8n_manager.v1 import snapshot_pb2_grpc
 from n8n_manager.v1 import common_pb2

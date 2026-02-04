@@ -22,32 +22,23 @@ from google.protobuf import timestamp_pb2
 from kubernetes_asyncio import client, watch
 
 import k8s
+from deployment import (
+    calculate_port,
+    version_to_namespace,
+    check_cluster_capacity,
+    namespace_exists,
+    create_namespace,
+    delete_namespace,
+    helm_install,
+    helm_uninstall,
+    get_helm_release_status,
+)
 from deployment_phase import calculate_phase
 from n8n_manager.v1 import version_pb2
 from n8n_manager.v1 import version_pb2_grpc
 from n8n_manager.v1 import common_pb2
 
 logger = logging.getLogger(__name__)
-
-
-def calculate_port(version: str) -> int:
-    """
-    Calculate NodePort from version string.
-    Handles pre-release versions like 1.76.8-exp, 1.86.0-beta.1, etc.
-    Formula: 30000 + (major * 1000) + (minor * 10) + patch
-    """
-    if version == 'unknown':
-        return 0
-    try:
-        version_parts = version.split('.')
-        major = int(version_parts[0])
-        minor = int(version_parts[1])
-        # Strip pre-release suffix from patch (e.g., "8-exp" -> "8")
-        patch_str = version_parts[2].split('-')[0]
-        patch = int(patch_str)
-        return 30000 + (major * 1000) + (minor * 10) + patch
-    except (ValueError, IndexError):
-        return 0
 
 
 def _create_timestamp(dt) -> timestamp_pb2.Timestamp:
