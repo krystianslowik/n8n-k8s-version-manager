@@ -103,34 +103,37 @@ Database snapshots stored as pg_dump files in backup storage. Operations:
 
 ## Port Mapping
 
-Formula: `30000 + (major × 100) + (minor × 10) + patch`
+Formula: `30000 + (major × 1000) + (minor × 10) + patch`
 
 | Version | Calculation | Port |
 |---------|-------------|------|
-| 1.85.0 | 30000 + 100 + 850 + 0 | 30950 |
-| 1.85.4 | 30000 + 100 + 850 + 4 | 30954 |
-| 1.92.0 | 30000 + 100 + 920 + 0 | 31020 |
-| 2.0.0 | 30000 + 200 + 0 + 0 | 30200 |
+| 1.85.0 | 30000 + 1000 + 850 + 0 | 31850 |
+| 1.85.4 | 30000 + 1000 + 850 + 4 | 31854 |
+| 1.92.0 | 30000 + 1000 + 920 + 0 | 31920 |
+| 2.0.0 | 30000 + 2000 + 0 + 0 | 32000 |
 
 Custom-named deployments use CRC32 hash mod 1000 + 30000.
 
 ## Project Structure
 
 ```
-├── api/                      # FastAPI backend
-│   ├── main.py              # Entry point, CORS
-│   ├── versions.py          # Deploy/delete/status/events/logs/config
-│   ├── snapshots.py         # Snapshot CRUD, restore
-│   └── available_versions.py # GitHub releases API
+├── api/                      # gRPC + REST backend
+│   ├── server.py            # gRPC server entry point
+│   ├── main.py              # REST API (file uploads only)
+│   ├── services/            # gRPC service implementations
+│   ├── generated/           # Protobuf-generated code
+│   ├── deployment.py        # Deployment operations (SDK)
+│   └── snapshot_ops.py      # Snapshot operations (SDK)
 ├── web-ui-next/             # Next.js frontend
 │   ├── app/                 # App Router pages
 │   ├── components/          # React components
-│   └── lib/                 # API client, types
+│   └── lib/                 # gRPC client, types
+├── proto/                   # Protocol Buffer definitions
 ├── charts/
 │   ├── n8n-infrastructure/  # Redis, backup storage
 │   └── n8n-instance/        # n8n deployment chart
 ├── scripts/                 # CLI tools
-└── docker-compose.yml       # Run UI + API
+└── docker-compose.yml       # Run all services
 ```
 
 ## Cleanup
