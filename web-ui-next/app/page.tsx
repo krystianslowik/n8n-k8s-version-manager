@@ -8,7 +8,6 @@ import { SnapshotsPanel } from '@/components/snapshots-panel'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { InfrastructureStatus } from '@/components/infrastructure-status'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { RefreshButton } from '@/components/refresh-button'
 import { Badge } from '@/components/ui/badge'
 import { useDeployments, useSnapshots, useAvailableVersions } from '@/lib/grpc-hooks'
 import { QUERY_CONFIG } from '@/lib/query-config'
@@ -57,21 +56,13 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
-function formatLastUpdated(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000)
-  if (seconds < 5) return 'just now'
-  if (seconds < 60) return `${seconds}s ago`
-  return `${Math.floor(seconds / 60)}m ago`
-}
-
-function LiveIndicator({ isFetching }: { isFetching: boolean }) {
+function LiveIndicator() {
   return (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <span className="relative flex h-2 w-2">
-        {isFetching && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />}
-        <span className={`relative inline-flex rounded-full h-2 w-2 ${isFetching ? 'bg-emerald-500' : 'bg-emerald-500/50'}`} />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
       </span>
-      <span>{isFetching ? 'Syncing...' : 'Live'}</span>
+      <span>Live</span>
     </div>
   )
 }
@@ -96,7 +87,7 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  const { data: protoDeployments, isLoading: isLoadingDeployments, isError: isErrorDeployments, isFetching, refetch: refetchDeployments, dataUpdatedAt } = useDeployments({
+  const { data: protoDeployments, isLoading: isLoadingDeployments, isError: isErrorDeployments, refetch: refetchDeployments } = useDeployments({
     staleTime: QUERY_CONFIG.deployments.staleTime,
     // Smart polling: faster when pending deployments exist, slower when all stable
     refetchInterval: (query) => {
@@ -151,14 +142,10 @@ export default function Home() {
                   </Badge>
                 )}
               </div>
-              <CardDescription className="flex items-center gap-3">
-                {dataUpdatedAt > 0 && (
-                  <span>Updated {formatLastUpdated(dataUpdatedAt)}</span>
-                )}
-                <LiveIndicator isFetching={isFetching} />
+              <CardDescription>
+                <LiveIndicator />
               </CardDescription>
             </div>
-            <RefreshButton onClick={() => refetchDeployments()} isLoading={isFetching} variant="outline" />
           </CardHeader>
           <CardContent>
             <ErrorBoundary>
