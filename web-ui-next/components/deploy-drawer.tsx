@@ -108,11 +108,11 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
   const { deploy, isDeploying, progress } = useDeployVersion({
     onProgress: (p) => {
       if (p.message) {
-        toast.loading(p.message, { id: 'deploy-progress' })
+        toast.loading(p.message, { id: 'deploy-progress', description: undefined })
       }
     },
     onSuccess: (namespace) => {
-      toast.success('Deployment complete', { id: 'deploy-progress' })
+      toast.success('Deployment complete', { id: 'deploy-progress', description: undefined })
       queryClient.invalidateQueries({ queryKey: grpcQueryKeys.deployments })
       addActivity('deployed', `v${version}`)
       onOpenChange(false)
