@@ -8,6 +8,7 @@ n8n Kubernetes Version Manager - a tool to run and switch between multiple n8n v
 
 ## Architecture
 
+### Kubernetes Layout
 ```
 Docker Desktop Kubernetes
 ├── n8n-system (shared infrastructure)
@@ -20,7 +21,21 @@ Docker Desktop Kubernetes
     └── Webhook Pod (queue mode only)
 ```
 
-**Port mapping formula**: `30000 + (major × 1000) + (minor × 10) + patch`
+### API Architecture
+```
+Frontend (Next.js)
+    │
+    ├── gRPC-Web via Connect-ES ──→ Envoy Proxy (:8080) ──→ gRPC Server (:50051)
+    │                                                        (primary API)
+    └── REST (file uploads only) ──→ FastAPI (:8000)
+```
+
+**Ports:**
+- **50051**: gRPC server (primary API for all operations)
+- **8080**: Envoy proxy (gRPC-Web translation for browser access)
+- **8000**: REST server (file uploads only)
+
+**Port mapping formula** (n8n instances): `30000 + (major × 1000) + (minor × 10) + patch`
 - 1.85.0 → 31850, 1.92.0 → 31920, 2.0.0 → 32000
 
 **Known limitations**:
@@ -30,11 +45,14 @@ Docker Desktop Kubernetes
 
 ### Development
 ```bash
-# Start both services (recommended)
+# Start all services (recommended)
 docker-compose up -d
 
-# Backend only
-cd api && pip install -r requirements.txt && uvicorn main:app --reload --port 8000
+# Backend services manually
+cd api && pip install -r requirements.txt
+python server.py              # gRPC server on :50051
+uvicorn main:app --port 8000  # REST upload server on :8000
+# Note: Envoy proxy requires docker-compose
 
 # Frontend only
 cd web-ui-next && npm install && npm run dev
@@ -67,19 +85,27 @@ helm install n8n-infra ./charts/n8n-infrastructure -n n8n-system
 
 ## Project Structure
 
-- `api/` - FastAPI backend (Python 3.11)
-  - `main.py` - Entry point, CORS, cache middleware
-  - `versions.py` - Deploy/delete/status/events/logs/config endpoints
-  - `snapshots.py` - Snapshot CRUD and restore operations
+- `api/` - Backend (Python 3.11, gRPC + minimal REST)
+  - `server.py` - gRPC server entry point (primary API)
+  - `main.py` - FastAPI app (file uploads only)
+  - `deployment.py` - Deployment orchestration logic
+  - `deployment_phase.py` - Deployment phase tracking and streaming
+  - `snapshot_ops.py` - Snapshot operations
   - `available_versions.py` - GitHub releases API client with 6-hour cache
   - `infrastructure.py` - Redis and backup storage health checks
   - `cluster.py` - Cluster resource monitoring
+  - `services/` - gRPC service implementations
+  - `generated/` - Protobuf-generated Python code
+
+- `proto/` - Protocol Buffer definitions
+  - `n8n.proto` - Service and message definitions
 
 - `web-ui-next/` - Next.js 16 frontend (TypeScript/React 19)
   - `app/` - App Router pages
   - `components/` - React components (shadcn/ui)
-  - `lib/api.ts` - Type-safe API client
+  - `lib/grpc-client.ts` - Connect-ES gRPC client
   - `lib/types.ts` - TypeScript interfaces
+  - `generated/` - Protobuf-generated TypeScript code
 
 - `charts/`
   - `n8n-infrastructure/` - Redis, backup storage (shared)
@@ -87,19 +113,40 @@ helm install n8n-infra ./charts/n8n-infrastructure -n n8n-system
 
 - `scripts/` - Bash CLI tools for deployment/snapshot operations
 
-## Key API Endpoints
+## API Reference
 
-- `GET/POST /api/versions` - List/create deployments
-- `DELETE /api/versions/{namespace}` - Remove deployment
-- `GET /api/versions/{namespace}/status|events|logs|config` - Deployment details
-- `GET/POST/DELETE /api/snapshots` - Snapshot management
-- `GET /api/infrastructure/status` - Redis/backup health
-- `GET /api/available-versions` - Fetch n8n releases from GitHub
+### gRPC Services (via Connect-ES on :8080)
+
+**VersionService:**
+- `ListVersions` - List all deployments
+- `DeployVersion` - Create new deployment (server streaming for progress)
+- `DeleteVersion` - Remove deployment
+- `GetVersionStatus` - Get deployment status
+- `GetVersionEvents` - Get Kubernetes events
+- `GetVersionLogs` - Get pod logs
+- `GetVersionConfig` - Get deployment configuration
+
+**SnapshotService:**
+- `ListSnapshots` - List all snapshots
+- `CreateSnapshot` - Create named snapshot
+- `DeleteSnapshot` - Delete snapshot
+- `RestoreSnapshot` - Restore snapshot to deployment
+
+**InfrastructureService:**
+- `GetStatus` - Redis and backup storage health
+
+**AvailableVersionsService:**
+- `ListAvailableVersions` - Fetch n8n releases from GitHub
+
+### REST Endpoints (on :8000)
+
+- `POST /api/upload` - File uploads (snapshots, etc.)
 
 ## Tech Stack
 
-- **Backend**: FastAPI 0.109, Pydantic 2.5, uvicorn (subprocess/kubectl integration)
-- **Frontend**: Next.js 16.1, React 19, Tailwind CSS 4, shadcn/ui, TanStack React Query
+- **Backend**: gRPC (grpcio), FastAPI 0.109 (uploads only), Pydantic 2.5 (subprocess/kubectl integration)
+- **Frontend**: Next.js 16.1, React 19, Tailwind CSS 4, shadcn/ui, Connect-ES (gRPC-Web client)
+- **API Layer**: Protocol Buffers, Envoy Proxy (gRPC-Web translation)
 - **Infrastructure**: Helm 3, PostgreSQL 16, Redis 7, Docker Compose
 
 ## Conventions
