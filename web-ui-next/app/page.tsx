@@ -56,13 +56,13 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
-function LiveIndicator() {
+function LiveIndicator({ isConnected }: { isConnected: boolean }) {
   return (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <span className="relative flex h-2 w-2">
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+        <span className={`relative inline-flex rounded-full h-2 w-2 ${isConnected ? 'bg-emerald-500' : 'bg-red-500'}`} />
       </span>
-      <span>Live</span>
+      <span>{isConnected ? 'Live' : 'Disconnected'}</span>
     </div>
   )
 }
@@ -143,7 +143,7 @@ export default function Home() {
                 )}
               </div>
               <CardDescription>
-                <LiveIndicator />
+                <LiveIndicator isConnected={!isErrorDeployments} />
               </CardDescription>
             </div>
           </CardHeader>
