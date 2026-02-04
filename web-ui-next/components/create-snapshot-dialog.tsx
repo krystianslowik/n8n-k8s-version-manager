@@ -18,10 +18,10 @@ import { Label } from '@/components/ui/label'
 import { LoaderIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { addActivity } from '@/lib/activity'
-import type { Deployment } from '@/lib/types'
+import type { DeploymentDisplay } from '@/lib/types'
 
 interface CreateSnapshotDialogProps {
-  deployment: Deployment | null
+  deployment: DeploymentDisplay | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }

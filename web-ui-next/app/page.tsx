@@ -14,21 +14,19 @@ import { useDeployments, useSnapshots, useAvailableVersions } from '@/lib/grpc-h
 import { QUERY_CONFIG } from '@/lib/query-config'
 import { timestampDate } from '@bufbuild/protobuf/wkt'
 import type { Deployment as ProtoDeployment, Snapshot as ProtoSnapshot } from '@/lib/generated/n8n_manager/v1/common_pb'
-import type { Deployment, Snapshot } from '@/lib/types'
+import type { DeploymentDisplay, SnapshotDisplay } from '@/lib/types'
 
-// Adapter: Convert proto Deployment to component Deployment type
-// TODO: Remove once components are migrated to use proto types directly
-function mapProtoDeployment(proto: ProtoDeployment): Deployment {
+// Adapter: Convert proto Deployment to component display type
+function mapProtoDeployment(proto: ProtoDeployment): DeploymentDisplay {
   return {
     namespace: proto.namespace,
     version: proto.version,
-    status: (proto.status as Deployment['status']) || 'unknown',
-    mode: (proto.mode as Deployment['mode']) || '',
+    status: proto.status || 'unknown',
+    mode: proto.mode || '',
     url: proto.url || undefined,
-    isolated_db: true, // gRPC deployments always have isolated DB
-    phase: proto.phase?.phase as Deployment['phase'],
+    phase: proto.phase?.phase,
     phase_info: proto.phase ? {
-      phase: proto.phase.phase as Deployment['phase'] || 'unknown',
+      phase: proto.phase.phase || 'unknown',
       label: proto.phase.label,
       pods_ready: proto.phase.pods?.filter(p => p.ready).length,
       pods_total: proto.phase.pods?.length,
@@ -37,9 +35,8 @@ function mapProtoDeployment(proto: ProtoDeployment): Deployment {
   }
 }
 
-// Adapter: Convert proto Snapshot to component Snapshot type
-// TODO: Remove once components are migrated to use proto types directly
-function mapProtoSnapshot(proto: ProtoSnapshot): Snapshot {
+// Adapter: Convert proto Snapshot to component display type
+function mapProtoSnapshot(proto: ProtoSnapshot): SnapshotDisplay {
   const createdIso = proto.createdAt ? timestampDate(proto.createdAt).toISOString() : undefined
   return {
     filename: proto.name, // Use name as filename

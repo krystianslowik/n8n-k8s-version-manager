@@ -9,10 +9,12 @@
  */
 
 // ============================================================================
-// Legacy types for component compatibility
-// TODO: Migrate components to use proto types directly, then remove these
+// Component UI types (used by UI components for display)
 // ============================================================================
 
+/**
+ * Deployment phase values for UI status display
+ */
 export type DeploymentPhase =
   | 'db-starting'
   | 'n8n-starting'
@@ -22,39 +24,33 @@ export type DeploymentPhase =
   | 'deleting'
   | 'unknown'
 
-export interface DeploymentPhaseInfo {
-  phase: DeploymentPhase
-  label: string
-  message?: string
-  failed_pod?: string
-  reason?: string
-  pods_ready?: number
-  pods_total?: number
-}
-
 /**
- * @deprecated Use proto Deployment type from '@/lib/generated/n8n_manager/v1/common_pb'
- * Kept for component compatibility during migration
+ * Deployment data for UI components
+ * Adapters in page.tsx convert proto types to this interface
  */
-export interface Deployment {
+export interface DeploymentDisplay {
   namespace: string
   name?: string
   version: string
-  status: 'running' | 'pending' | 'failed' | 'unknown'
-  phase?: DeploymentPhase
-  phase_info?: DeploymentPhaseInfo
-  mode: 'queue' | 'regular' | ''
+  status: string
+  phase?: string
+  phase_info?: {
+    phase: string
+    label: string
+    pods_ready?: number
+    pods_total?: number
+  }
+  mode: string
   url?: string
-  isolated_db: boolean
   snapshot?: string
   created_at?: string
 }
 
 /**
- * @deprecated Use proto Snapshot type from '@/lib/generated/n8n_manager/v1/common_pb'
- * Kept for component compatibility during migration
+ * Snapshot data for UI components
+ * Adapters in page.tsx convert proto types to this interface
  */
-export interface Snapshot {
+export interface SnapshotDisplay {
   filename: string
   name?: string
   type: 'named' | 'auto'

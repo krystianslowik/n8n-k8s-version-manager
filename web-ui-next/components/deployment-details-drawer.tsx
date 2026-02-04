@@ -11,7 +11,7 @@ import {
   useRestoreSnapshot,
 } from '@/lib/grpc-hooks'
 import type { PodStatus, ContainerStatus } from '@/lib/grpc-client'
-import type { Deployment } from '@/lib/types'
+import type { DeploymentDisplay } from '@/lib/types'
 import {
   Sheet,
   SheetContent,
@@ -64,7 +64,7 @@ import { toast } from 'sonner'
 import { addActivity } from '@/lib/activity'
 
 interface DeploymentDetailsDrawerProps {
-  deployment: Deployment | null
+  deployment: DeploymentDisplay | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }

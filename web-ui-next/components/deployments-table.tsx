@@ -49,7 +49,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { addActivity } from '@/lib/activity'
-import type { Deployment, DeploymentPhase } from '@/lib/types'
+import type { DeploymentDisplay, DeploymentPhase } from '@/lib/types'
 import { formatAgeFromDate } from '@/lib/format'
 import { CreateSnapshotDialog } from './create-snapshot-dialog'
 import { DeploymentDetailsDrawer } from './deployment-details-drawer'
@@ -73,7 +73,7 @@ const PHASE_CONFIG: Record<DeploymentPhase | string, {
 }
 
 // Status indicator with animated dot
-function StatusBadge({ status, phase, isDeleting }: { status: string; phase?: DeploymentPhase; isDeleting: boolean }) {
+function StatusBadge({ status, phase, isDeleting }: { status: string; phase?: string; isDeleting: boolean }) {
   if (isDeleting) {
     return (
       <Badge variant="secondary" className="gap-1.5">
@@ -102,7 +102,7 @@ function StatusBadge({ status, phase, isDeleting }: { status: string; phase?: De
 }
 
 interface DeploymentsTableProps {
-  deployments: Deployment[] | undefined
+  deployments: DeploymentDisplay[] | undefined
   isLoading: boolean
   isError?: boolean
   onRetry?: () => void
@@ -110,10 +110,10 @@ interface DeploymentsTableProps {
 }
 
 export function DeploymentsTable({ deployments, isLoading, isError, onRetry, onDeployClick }: DeploymentsTableProps) {
-  const [deploymentToDelete, setDeploymentToDelete] = useState<Deployment | null>(null)
+  const [deploymentToDelete, setDeploymentToDelete] = useState<DeploymentDisplay | null>(null)
   const [deletingNamespace, setDeletingNamespace] = useState<string | null>(null)
-  const [deploymentToView, setDeploymentToView] = useState<Deployment | null>(null)
-  const [deploymentToSnapshot, setDeploymentToSnapshot] = useState<Deployment | null>(null)
+  const [deploymentToView, setDeploymentToView] = useState<DeploymentDisplay | null>(null)
+  const [deploymentToSnapshot, setDeploymentToSnapshot] = useState<DeploymentDisplay | null>(null)
   const queryClient = useQueryClient()
 
   const deleteMutation = useDeleteDeployment({

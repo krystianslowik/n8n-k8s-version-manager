@@ -18,10 +18,10 @@ import { UploadSnapshotDialog } from './upload-snapshot-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { QueryErrorState } from '@/components/error-boundary'
 import { addActivity } from '@/lib/activity'
-import type { Snapshot } from '@/lib/types'
+import type { SnapshotDisplay } from '@/lib/types'
 
 interface SnapshotsPanelProps {
-  snapshots: Snapshot[] | undefined
+  snapshots: SnapshotDisplay[] | undefined
   isLoading: boolean
   isError?: boolean
   onRetry?: () => void
