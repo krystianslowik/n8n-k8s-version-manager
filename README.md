@@ -4,35 +4,26 @@ Run multiple n8n versions on local Kubernetes. Each deployment gets its own name
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Docker Desktop                                │
-│  ┌────────────────────────────────────────────────────────────────┐ │
-│  │                      Kubernetes                                 │ │
-│  │                                                                 │ │
-│  │  ┌─────────────────┐   ┌─────────────────┐                     │ │
-│  │  │   n8n-system    │   │   n8n-v1-85-0   │   ...more versions  │ │
-│  │  │                 │   │                 │                     │ │
-│  │  │  ┌───────────┐  │   │  ┌───────────┐  │                     │ │
-│  │  │  │   Redis   │  │   │  │ PostgreSQL│  │  (isolated DB)      │ │
-│  │  │  │ (shared)  │  │   │  │ (per-ns)  │  │                     │ │
-│  │  │  └───────────┘  │   │  └───────────┘  │                     │ │
-│  │  │  ┌───────────┐  │   │  ┌───────────┐  │                     │ │
-│  │  │  │  Backup   │  │   │  │  n8n main │  │                     │ │
-│  │  │  │  Storage  │  │   │  └───────────┘  │                     │ │
-│  │  │  └───────────┘  │   │  ┌───────────┐  │                     │ │
-│  │  │                 │   │  │  workers  │  │  (queue mode)       │ │
-│  │  │                 │   │  └───────────┘  │                     │ │
-│  │  │                 │   │  ┌───────────┐  │                     │ │
-│  │  │                 │   │  │  webhook  │  │                     │ │
-│  │  │                 │   │  └───────────┘  │                     │ │
-│  │  └─────────────────┘   └─────────────────┘                     │ │
-│  └────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
-         │                           │
-         ▼                           ▼
-    localhost:3000              localhost:30950
-    (Web UI + API)              (n8n instance)
+```mermaid
+graph TB
+    subgraph DD["Docker Desktop"]
+        subgraph K8s["Kubernetes"]
+            subgraph system["n8n-system"]
+                Redis["Redis (shared)"]
+                Backup["Backup Storage"]
+            end
+            subgraph v1["n8n-v1-85-0"]
+                PG["PostgreSQL (per-ns)"]
+                Main["n8n main"]
+                Workers["workers (queue mode)"]
+                Webhook["webhook"]
+            end
+            More["...more versions"]
+        end
+    end
+
+    system -->|localhost:3000| UI["Web UI + API"]
+    v1 -->|localhost:30950| Instance["n8n instance"]
 ```
 
 **Components:**
