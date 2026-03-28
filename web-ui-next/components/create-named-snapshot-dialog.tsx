@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { useQueryClient } from '@tanstack/react-query'
+import { useCreateSnapshot, grpcQueryKeys } from '@/lib/grpc-hooks'
 import {
   Dialog,
   DialogContent,
@@ -38,26 +38,26 @@ export function CreateNamedSnapshotDialog({
   const [source, setSource] = useState('shared')
   const queryClient = useQueryClient()
 
-  const createMutation = useMutation({
-    mutationFn: () => api.createNamedSnapshot({ name, source }),
-    onSuccess: (data) => {
-      if (data.success) {
-        toast.success('Snapshot created', {
-          description: `Named snapshot "${name}" has been created`,
-        })
-        addActivity('snapshot', name)
-        queryClient.invalidateQueries({ queryKey: ['snapshots'] })
-        onOpenChange(false)
-        setName('')
-        setSource('shared')
-      } else {
-        toast.error('Failed to create snapshot', {
-          description: data.error,
-        })
+  const { create, isCreating, progress } = useCreateSnapshot({
+    onProgress: (p) => {
+      if (p.message) {
+        toast.loading(p.message, { id: 'named-snapshot-progress' })
       }
+    },
+    onSuccess: () => {
+      toast.success('Snapshot created', {
+        id: 'named-snapshot-progress',
+        description: `Named snapshot "${name}" has been created`,
+      })
+      addActivity('snapshot', name)
+      queryClient.invalidateQueries({ queryKey: grpcQueryKeys.snapshots })
+      onOpenChange(false)
+      setName('')
+      setSource('shared')
     },
     onError: (error: Error) => {
       toast.error('Failed to create snapshot', {
+        id: 'named-snapshot-progress',
         description: error.message,
       })
     },
@@ -79,7 +79,10 @@ export function CreateNamedSnapshotDialog({
       return
     }
 
-    createMutation.mutate()
+    create({
+      name,
+      sourceNamespace: source === 'shared' ? '' : source,
+    })
   }
 
   return (
@@ -100,7 +103,7 @@ export function CreateNamedSnapshotDialog({
               placeholder="e.g., test-data-v1, prod-clone"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              disabled={createMutation.isPending}
+              disabled={isCreating}
             />
             <p className="text-xs text-muted-foreground">
               Use only letters, numbers, hyphens, and underscores
@@ -112,7 +115,7 @@ export function CreateNamedSnapshotDialog({
             <Select
               value={source}
               onValueChange={setSource}
-              disabled={createMutation.isPending}
+              disabled={isCreating}
             >
               <SelectTrigger id="snapshot-source">
                 <SelectValue />
@@ -129,18 +132,18 @@ export function CreateNamedSnapshotDialog({
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={createMutation.isPending}
+            disabled={isCreating}
           >
             Cancel
           </Button>
           <Button
             onClick={handleCreate}
-            disabled={createMutation.isPending}
+            disabled={isCreating}
           >
-            {createMutation.isPending ? (
+            {isCreating ? (
               <>
                 <LoaderIcon className="h-4 w-4 mr-2 animate-spin" />
-                Creating...
+                {progress?.message || 'Creating...'}
               </>
             ) : (
               'Create Snapshot'

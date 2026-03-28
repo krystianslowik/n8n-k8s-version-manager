@@ -77,7 +77,7 @@ def fetch_page(url: str, params: dict = None) -> tuple[List[str], Optional[str]]
 
     versions = []
     for r in response.json():
-        if r.get("draft"):  # Allow pre-releases, only skip drafts
+        if r.get("draft") or r.get("prerelease"):
             continue
         version = extract_version(r.get("tag_name", ""))
         if version:

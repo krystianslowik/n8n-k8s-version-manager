@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { useQueryClient } from '@tanstack/react-query'
+import { useCreateSnapshot, grpcQueryKeys } from '@/lib/grpc-hooks'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -18,10 +18,10 @@ import { Label } from '@/components/ui/label'
 import { LoaderIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { addActivity } from '@/lib/activity'
-import type { Deployment } from '@/lib/types'
+import type { DeploymentDisplay } from '@/lib/types'
 
 interface CreateSnapshotDialogProps {
-  deployment: Deployment | null
+  deployment: DeploymentDisplay | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -34,20 +34,25 @@ export function CreateSnapshotDialog({
   const [name, setName] = useState('')
   const queryClient = useQueryClient()
 
-  const createMutation = useMutation({
-    mutationFn: (params: { namespace: string; name?: string }) =>
-      api.createSnapshotFromDeployment(params.namespace, params.name),
+  const { create, isCreating, progress } = useCreateSnapshot({
+    onProgress: (p) => {
+      if (p.message) {
+        toast.loading(p.message, { id: 'snapshot-progress' })
+      }
+    },
     onSuccess: () => {
       toast.success('Snapshot created', {
+        id: 'snapshot-progress',
         description: `Snapshot ${name || 'auto-named'} created from ${deployment?.namespace}`,
       })
       addActivity('snapshot', name || `from ${deployment?.namespace}`)
-      queryClient.invalidateQueries({ queryKey: ['named-snapshots'] })
+      queryClient.invalidateQueries({ queryKey: grpcQueryKeys.snapshots })
       onOpenChange(false)
       setName('')
     },
     onError: (error: Error) => {
       toast.error('Failed to create snapshot', {
+        id: 'snapshot-progress',
         description: error.message,
       })
     },
@@ -55,9 +60,9 @@ export function CreateSnapshotDialog({
 
   const handleCreate = () => {
     if (!deployment) return
-    createMutation.mutate({
-      namespace: deployment.namespace,
-      name: name || undefined,
+    create({
+      name: name || `snapshot-${Date.now()}`,
+      sourceNamespace: deployment.namespace,
     })
   }
 
@@ -90,17 +95,17 @@ export function CreateSnapshotDialog({
         </div>
 
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={createMutation.isPending}>
+          <AlertDialogCancel disabled={isCreating}>
             Cancel
           </AlertDialogCancel>
           <Button
             onClick={handleCreate}
-            disabled={createMutation.isPending}
+            disabled={isCreating}
           >
-            {createMutation.isPending ? (
+            {isCreating ? (
               <>
                 <LoaderIcon className="h-4 w-4 mr-2 animate-spin" />
-                Creating...
+                {progress?.message || 'Creating...'}
               </>
             ) : (
               'Create Snapshot'

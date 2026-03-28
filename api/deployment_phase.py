@@ -11,6 +11,7 @@ class DeploymentPhase(str, Enum):
     WORKERS_STARTING = "workers-starting"
     RUNNING = "running"
     FAILED = "failed"
+    DELETING = "deleting"
     UNKNOWN = "unknown"
 
 
@@ -20,6 +21,7 @@ PHASE_LABELS = {
     DeploymentPhase.WORKERS_STARTING: "Workers",
     DeploymentPhase.RUNNING: "Running",
     DeploymentPhase.FAILED: "Failed",
+    DeploymentPhase.DELETING: "Deleting",
     DeploymentPhase.UNKNOWN: "Unknown",
 }
 
@@ -35,14 +37,22 @@ def is_pod_running(pod: Dict) -> bool:
 
 
 def is_pod_failed(pod: Dict) -> bool:
-    """Check if pod is in a failed state."""
+    """Check if pod is in a persistent failed state (not transient startup errors)."""
     if pod.get("phase") == "Failed":
         return True
-    # Check for problematic container states
+    # Check for persistent problematic container states
     for container in pod.get("containers", []):
         state_detail = container.get("state_detail")
-        if state_detail in ["CrashLoopBackOff", "ErrImagePull", "ImagePullBackOff", "Error"]:
+        # Only these are persistent failures:
+        # - CrashLoopBackOff: container keeps crashing
+        # - ErrImagePull/ImagePullBackOff: can't pull image
+        if state_detail in ["CrashLoopBackOff", "ErrImagePull", "ImagePullBackOff"]:
             return True
+        # "Error" state is only a failure if pod has restarted multiple times
+        # (transient errors during startup are normal)
+        if state_detail == "Error" and container.get("restart_count", 0) >= 3:
+            return True
+        # High restart count indicates persistent issues
         if container.get("restart_count", 0) > 5:
             return True
     return False
@@ -72,6 +82,15 @@ def calculate_phase(pods: List[Dict], is_queue_mode: bool) -> Dict[str, Any]:
             "phase": DeploymentPhase.DB_STARTING.value,
             "label": PHASE_LABELS[DeploymentPhase.DB_STARTING],
             "message": "Waiting for pods..."
+        }
+
+    # Check if all pods are terminating (deletion in progress)
+    terminating_pods = [p for p in pods if p.get("terminating", False)]
+    if terminating_pods and len(terminating_pods) == len(pods):
+        return {
+            "phase": DeploymentPhase.DELETING.value,
+            "label": PHASE_LABELS[DeploymentPhase.DELETING],
+            "message": f"Removing {len(terminating_pods)} pods..."
         }
 
     # Categorize pods by type

@@ -1,7 +1,6 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { useClusterResources } from '@/lib/grpc-hooks'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -13,15 +12,37 @@ import {
 import { ServerIcon, AlertTriangleIcon, CheckCircleIcon, InfoIcon } from 'lucide-react'
 import { formatMemory } from '@/lib/format'
 
+/**
+ * Parse Kubernetes memory string (e.g., "1234Mi", "2Gi", "1234") to Mebibytes
+ */
+function parseMemoryToMi(memoryStr: string | undefined): number {
+  if (!memoryStr) return 0
+  const match = memoryStr.match(/^(\d+(?:\.\d+)?)\s*(Ki|Mi|Gi|Ti|K|M|G|T)?$/i)
+  if (!match) return 0
+  const value = parseFloat(match[1])
+  const unit = (match[2] || '').toLowerCase()
+  switch (unit) {
+    case 'ki': return value / 1024
+    case 'mi': return value
+    case 'gi': return value * 1024
+    case 'ti': return value * 1024 * 1024
+    case 'k': return value / 1024
+    case 'm': return value
+    case 'g': return value * 1024
+    case 't': return value * 1024 * 1024
+    default: return value / (1024 * 1024) // bytes to Mi
+  }
+}
+
 export function MemoryStatCard() {
-  const { data: resources, isLoading } = useQuery({
-    queryKey: ['cluster-resources'],
-    queryFn: api.getClusterResources,
+  const { data: resources, isLoading } = useClusterResources({
     staleTime: 30000, // Memory data valid for 30s
     refetchInterval: 30000, // Poll every 30s
   })
 
-  if (isLoading || !resources?.memory) {
+  const summary = resources?.summary
+
+  if (isLoading || !summary) {
     return (
       <Card>
         <CardContent className="py-4 px-6">
@@ -35,7 +56,11 @@ export function MemoryStatCard() {
     )
   }
 
-  const { memory } = resources
+  // Parse memory strings to Mi for display
+  const usedMi = parseMemoryToMi(summary.usedMemory)
+  const totalMi = parseMemoryToMi(summary.totalMemory)
+  const availableMi = totalMi - usedMi
+  const utilizationPercent = Math.round(summary.memoryUtilizationPercent)
 
   return (
     <TooltipProvider>
@@ -47,18 +72,18 @@ export function MemoryStatCard() {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Cluster Memory</p>
                   <p className="text-2xl font-bold mt-1">
-                    {memory.utilization_percent}%
+                    {utilizationPercent}%
                   </p>
                   <div className="flex items-center gap-1 mt-1">
-                {memory.utilization_percent >= 85 ? (
+                {utilizationPercent >= 85 ? (
                   <AlertTriangleIcon className="h-3 w-3 text-red-600" />
-                ) : memory.utilization_percent >= 70 ? (
+                ) : utilizationPercent >= 70 ? (
                   <AlertTriangleIcon className="h-3 w-3 text-yellow-600" />
                 ) : (
                   <CheckCircleIcon className="h-3 w-3 text-green-600" />
                 )}
                     <p className="text-xs text-muted-foreground">
-                      {formatMemory(memory.used_mi)} / {formatMemory(memory.allocatable_mi)}
+                      {formatMemory(usedMi)} / {formatMemory(totalMi)}
                     </p>
                   </div>
                 </div>
@@ -73,25 +98,15 @@ export function MemoryStatCard() {
             <div className="space-y-1 text-xs">
               <div className="flex justify-between gap-4">
                 <span className="text-muted-foreground">Used:</span>
-                <span className="font-mono">{formatMemory(memory.used_mi)}</span>
+                <span className="font-mono">{formatMemory(usedMi)}</span>
               </div>
               <div className="flex justify-between gap-4">
                 <span className="text-muted-foreground">Available:</span>
-                <span className="font-mono">{formatMemory(memory.available_mi)}</span>
+                <span className="font-mono">{formatMemory(availableMi)}</span>
               </div>
               <div className="flex justify-between gap-4">
                 <span className="text-muted-foreground">Total:</span>
-                <span className="font-mono">{formatMemory(memory.allocatable_mi)}</span>
-              </div>
-              <div className="border-t pt-1 mt-1">
-                <div className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">Can deploy queue:</span>
-                  <span>{resources.can_deploy.queue_mode ? '✓' : '✗'}</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">Can deploy regular:</span>
-                  <span>{resources.can_deploy.regular_mode ? '✓' : '✗'}</span>
-                </div>
+                <span className="font-mono">{formatMemory(totalMi)}</span>
               </div>
             </div>
           </div>

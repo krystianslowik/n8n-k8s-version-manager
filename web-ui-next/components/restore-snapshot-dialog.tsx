@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { useQueryClient } from '@tanstack/react-query'
+import { useDeployments, useRestoreSnapshot, grpcQueryKeys } from '@/lib/grpc-hooks'
 import {
   Dialog,
   DialogContent,
@@ -37,32 +37,29 @@ export function RestoreSnapshotDialog({
   const [selectedNamespace, setSelectedNamespace] = useState<string>('')
   const queryClient = useQueryClient()
 
-  const { data: deployments, isLoading: deploymentsLoading } = useQuery({
-    queryKey: ['deployments'],
-    queryFn: api.getDeployments,
+  const { data: deployments, isLoading: deploymentsLoading } = useDeployments({
     enabled: open,
   })
 
-  const restoreMutation = useMutation({
-    mutationFn: (params: { snapshot: string; namespace: string }) =>
-      api.restoreToDeployment(params),
-    onSuccess: (data) => {
-      if (data.success) {
-        toast.success('Snapshot restored', {
-          description: `Database restored to ${selectedNamespace}`,
-        })
-        addActivity('restored', `${snapshot} → ${selectedNamespace}`)
-        queryClient.invalidateQueries({ queryKey: ['deployments'] })
-        onOpenChange(false)
-        setSelectedNamespace('')
-      } else {
-        toast.error('Restore failed', {
-          description: data.error || 'Unknown error',
-        })
+  const { restore, isRestoring, progress } = useRestoreSnapshot({
+    onProgress: (p) => {
+      if (p.message) {
+        toast.loading(p.message, { id: 'restore-progress' })
       }
+    },
+    onSuccess: () => {
+      toast.success('Snapshot restored', {
+        id: 'restore-progress',
+        description: `Database restored to ${selectedNamespace}`,
+      })
+      addActivity('restored', `${snapshot} → ${selectedNamespace}`)
+      queryClient.invalidateQueries({ queryKey: grpcQueryKeys.deployments })
+      onOpenChange(false)
+      setSelectedNamespace('')
     },
     onError: (error: Error) => {
       toast.error('Restore failed', {
+        id: 'restore-progress',
         description: error.message,
       })
     },
@@ -70,7 +67,7 @@ export function RestoreSnapshotDialog({
 
   const handleRestore = () => {
     if (snapshot && selectedNamespace) {
-      restoreMutation.mutate({ snapshot, namespace: selectedNamespace })
+      restore({ snapshotName: snapshot, targetNamespace: selectedNamespace })
     }
   }
 
@@ -121,7 +118,7 @@ export function RestoreSnapshotDialog({
                       <div className="flex items-center gap-2">
                         <span className="font-mono">v{d.version}</span>
                         <span className="text-muted-foreground">
-                          {d.name || d.namespace}
+                          {d.namespace}
                         </span>
                       </div>
                     </SelectItem>
@@ -150,19 +147,19 @@ export function RestoreSnapshotDialog({
           <Button
             variant="outline"
             onClick={() => handleOpenChange(false)}
-            disabled={restoreMutation.isPending}
+            disabled={isRestoring}
           >
             Cancel
           </Button>
           <Button
             onClick={handleRestore}
-            disabled={!selectedNamespace || restoreMutation.isPending}
+            disabled={!selectedNamespace || isRestoring}
             className="bg-destructive hover:bg-destructive/90"
           >
-            {restoreMutation.isPending ? (
+            {isRestoring ? (
               <>
                 <LoaderIcon className="h-4 w-4 mr-2 animate-spin" />
-                Restoring...
+                {progress?.message || 'Restoring...'}
               </>
             ) : (
               'Restore'

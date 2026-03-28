@@ -1,36 +1,56 @@
+/**
+ * Frontend-only types for forms and REST upload
+ *
+ * Note: Most data types are now generated from protobuf definitions.
+ * Import from '@/lib/generated/n8n_manager/v1/...' for:
+ *   - Deployment, DeploymentPhase, PodStatus, ContainerStatus
+ *   - Snapshot, Event (K8sEvent), PodLogs
+ *   - ClusterSummary, NodeResources, ComponentStatus
+ */
+
+// ============================================================================
+// Component UI types (used by UI components for display)
+// ============================================================================
+
+/**
+ * Deployment phase values for UI status display
+ */
 export type DeploymentPhase =
   | 'db-starting'
   | 'n8n-starting'
   | 'workers-starting'
   | 'running'
   | 'failed'
+  | 'deleting'
   | 'unknown'
 
-export interface DeploymentPhaseInfo {
-  phase: DeploymentPhase
-  label: string
-  message?: string
-  failed_pod?: string
-  reason?: string
-  pods_ready?: number
-  pods_total?: number
-}
-
-export interface Deployment {
+/**
+ * Deployment data for UI components
+ * Adapters in page.tsx convert proto types to this interface
+ */
+export interface DeploymentDisplay {
   namespace: string
   name?: string
   version: string
-  status: 'running' | 'pending' | 'failed' | 'unknown'
-  phase?: DeploymentPhase  // Granular deployment phase
-  phase_info?: DeploymentPhaseInfo  // Detailed phase information
-  mode: 'queue' | 'regular' | ''
-  url?: string  // Optional - may not exist for new deployments
-  isolated_db: boolean
-  snapshot?: string  // Snapshot name if deployed with one
+  status: string
+  phase?: string
+  phase_info?: {
+    phase: string
+    label: string
+    pods_ready?: number
+    pods_total?: number
+  }
+  mode: string
+  url?: string
+  snapshot?: string
   created_at?: string
 }
 
-export interface Snapshot {
+/**
+ * Snapshot data for UI components
+ * Adapters in page.tsx convert proto types to this interface
+ */
+export interface SnapshotDisplay {
   filename: string
   name?: string
   type: 'named' | 'auto'
@@ -40,20 +60,14 @@ export interface Snapshot {
   source?: string
 }
 
-export interface SnapshotListResponse {
-  snapshots: Snapshot[]
-}
+// ============================================================================
+// REST upload types (file uploads require REST/multipart, not gRPC)
+// ============================================================================
 
-export interface CreateNamedSnapshotRequest {
-  name: string
-  source?: string
-}
-
-export interface RestoreToDeploymentRequest {
-  snapshot: string
-  namespace: string
-}
-
+/**
+ * Response from REST snapshot upload endpoint
+ * (File uploads require REST/multipart, not gRPC)
+ */
 export interface SnapshotActionResponse {
   success: boolean
   message?: string
@@ -61,75 +75,26 @@ export interface SnapshotActionResponse {
   output?: string
 }
 
-export interface InfrastructureStatus {
-  redis: {
-    status: 'healthy' | 'unavailable'
-    message?: string
-  }
-  backup: {
-    status: 'healthy' | 'unavailable'
-    message?: string
-  }
-}
-
-export interface DeployRequest {
-  version: string
-  mode: 'queue' | 'regular'
-  name?: string
-  snapshot?: string
-  helm_values?: HelmValues
-}
-
-export interface AvailableVersionsResponse {
-  versions: string[]
-}
-
-export interface ApiResponse<T = unknown> {
-  success: boolean
-  message?: string
-  error?: string
-  data?: T
-}
-
-export interface ClusterMemory {
-  allocatable_mi: number
-  used_mi: number
-  available_mi: number
-  utilization_percent: number
-}
-
-export interface ClusterDeployment {
-  namespace: string
-  memory_mi: number
-  mode: 'queue' | 'regular'
-  age_seconds: number
-}
-
-export interface ClusterResources {
-  error?: string
-  memory: ClusterMemory | null
-  can_deploy: {
-    queue_mode: boolean
-    regular_mode: boolean
-  }
-  deployments: ClusterDeployment[]
-}
-
-export interface NamespaceStatus {
-  exists: boolean
-  namespace: string
-}
-
+/**
+ * Environment variable for deployment configuration
+ */
 export interface EnvVar {
   key: string
   value: string
 }
 
+/**
+ * Resource requests and limits specification
+ */
 export interface ResourceSpec {
   requests?: { cpu?: string; memory?: string }
   limits?: { cpu?: string; memory?: string }
 }
 
+/**
+ * Helm values for n8n deployment configuration
+ * Used in the deploy drawer form
+ */
 export interface HelmValues {
   // Database settings
   database?: {
@@ -176,56 +141,4 @@ export interface HelmValues {
 
   // Raw YAML override (merged last, takes precedence)
   rawYaml?: string
-}
-
-// K8s Observability types
-export interface K8sEvent {
-  type: 'Normal' | 'Warning'
-  reason: string
-  message: string
-  timestamp: string
-  count: number
-  object: {
-    kind: string
-    name: string
-  }
-}
-
-export interface ContainerStatus {
-  name: string
-  ready: boolean
-  state: 'running' | 'waiting' | 'terminated' | 'unknown'
-  state_detail?: string
-  restart_count: number
-}
-
-export interface PodStatus {
-  name: string
-  phase: 'Pending' | 'Running' | 'Succeeded' | 'Failed' | 'Unknown'
-  containers: ContainerStatus[]
-  created: string
-}
-
-export interface PodLogs {
-  pod: string
-  container?: string
-  logs: string
-  error?: string
-}
-
-export interface EventsResponse {
-  events: K8sEvent[]
-}
-
-export interface PodsResponse {
-  pods: PodStatus[]
-}
-
-export interface LogsResponse {
-  logs: PodLogs[]
-}
-
-export interface ConfigResponse {
-  config: Record<string, string>
-  error?: string
 }

@@ -1,0 +1,34 @@
+syntax = "proto3";
+package n8n.manager.v1;
+
+option go_package = "github.com/n8n-manager/proto/n8n_manager/v1;n8n_managerv1";
+
+import "google/protobuf/timestamp.proto";
+
+// AvailableVersionsService fetches available n8n versions from GitHub
+service AvailableVersionsService {
+  // List all available n8n versions from GitHub releases
+  rpc ListAvailableVersions(ListAvailableVersionsRequest) returns (ListAvailableVersionsResponse);
+}
+
+// ListAvailableVersionsRequest is the request for listing available versions
+message ListAvailableVersionsRequest {
+  optional bool include_prereleases = 1;
+  optional int32 limit = 2;
+}
+
+// ListAvailableVersionsResponse contains available n8n versions
+message ListAvailableVersionsResponse {
+  repeated AvailableVersion versions = 1;
+  google.protobuf.Timestamp cached_at = 2;
+}
+
+// AvailableVersion represents an available n8n version from GitHub
+message AvailableVersion {
+  string version = 1;
+  string tag_name = 2;
+  bool prerelease = 3;
+  bool latest = 4;
+  google.protobuf.Timestamp published_at = 5;
+  string release_notes_url = 6;
+}

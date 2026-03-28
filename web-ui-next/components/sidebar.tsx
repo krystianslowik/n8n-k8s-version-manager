@@ -15,9 +15,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '@/lib/api'
-import { QUERY_CONFIG } from '@/lib/query-config'
+import {
+  useInfrastructureStatus,
+  useDeployments,
+  useClusterResources,
+  useSnapshots,
+} from '@/lib/grpc-hooks'
 import { useActivity } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
 import type { ActivityType } from '@/lib/activity'
@@ -46,33 +49,13 @@ function formatTimeAgo(timestamp: number): string {
 export function Sidebar({ onDeployClick }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
 
-  const { data: infrastructure, isLoading: isLoadingInfra } = useQuery({
-    queryKey: ['infrastructure'],
-    queryFn: api.getInfrastructureStatus,
-    staleTime: QUERY_CONFIG.infrastructure.staleTime,
-    refetchInterval: QUERY_CONFIG.infrastructure.refetchInterval,
-  })
-
-  const { data: deployments, isLoading: isLoadingDeployments } = useQuery({
-    queryKey: ['deployments'],
-    queryFn: api.getDeployments,
-    staleTime: QUERY_CONFIG.deployments.staleTime,
-  })
-
-  const { data: snapshots, isLoading: isLoadingSnapshots } = useQuery({
-    queryKey: ['snapshots'],
-    queryFn: api.getSnapshots,
-    staleTime: QUERY_CONFIG.snapshots.staleTime,
-  })
-
-  const { data: clusterResources, isLoading: isLoadingResources } = useQuery({
-    queryKey: ['cluster-resources'],
-    queryFn: api.getClusterResources,
-    staleTime: QUERY_CONFIG.clusterResources.staleTime,
-  })
+  const { data: infrastructure, isLoading: isLoadingInfra } = useInfrastructureStatus()
+  const { data: deployments, isLoading: isLoadingDeployments } = useDeployments()
+  const { data: snapshots, isLoading: isLoadingSnapshots } = useSnapshots()
+  const { data: clusterResources, isLoading: isLoadingResources } = useClusterResources()
 
   const activities = useActivity()
-  const memory = clusterResources?.memory
+  const memorySummary = clusterResources?.summary
 
   return (
     <aside
@@ -129,19 +112,19 @@ export function Sidebar({ onDeployClick }: SidebarProps) {
                 <Skeleton className="h-2 w-full rounded-full " />
                 <Skeleton className="h-3 w-16 " />
               </div>
-            ) : memory && (
+            ) : memorySummary && (
               <div className="space-y-1">
                 <div className="h-2 bg-muted rounded-full overflow-hidden">
                   <div
                     className={cn(
                       'h-full transition-all',
-                      memory.utilization_percent >= 85 ? 'bg-red-500' :
-                      memory.utilization_percent >= 70 ? 'bg-yellow-500' : 'bg-green-500'
+                      memorySummary.memoryUtilizationPercent >= 85 ? 'bg-red-500' :
+                      memorySummary.memoryUtilizationPercent >= 70 ? 'bg-yellow-500' : 'bg-green-500'
                     )}
-                    style={{ width: `${memory.utilization_percent}%` }}
+                    style={{ width: `${memorySummary.memoryUtilizationPercent}%` }}
                   />
                 </div>
-                <p className="text-xs text-muted-foreground">{memory.utilization_percent}% memory</p>
+                <p className="text-xs text-muted-foreground">{Math.round(memorySummary.memoryUtilizationPercent)}% memory</p>
               </div>
             )
           )}
@@ -204,16 +187,16 @@ export function Sidebar({ onDeployClick }: SidebarProps) {
             <div
               className={cn(
                 'h-3 w-3 rounded-full',
-                infrastructure?.redis.status === 'healthy' ? 'bg-green-500' : 'bg-red-500'
+                infrastructure?.redis?.status === 'healthy' ? 'bg-green-500' : 'bg-red-500'
               )}
-              title={`Redis: ${infrastructure?.redis.status || 'unknown'}`}
+              title={`Redis: ${infrastructure?.redis?.status || 'unknown'}`}
             />
             <div
               className={cn(
                 'h-3 w-3 rounded-full',
-                infrastructure?.backup?.status === 'healthy' ? 'bg-green-500' : 'bg-red-500'
+                infrastructure?.backupStorage?.status === 'healthy' ? 'bg-green-500' : 'bg-red-500'
               )}
-              title={`Backups: ${infrastructure?.backup?.status || 'unknown'}`}
+              title={`Backups: ${infrastructure?.backupStorage?.status || 'unknown'}`}
             />
           </>
         ) : (
@@ -224,10 +207,10 @@ export function Sidebar({ onDeployClick }: SidebarProps) {
                 <span className="text-xs">Redis</span>
               </div>
               <Badge
-                variant={infrastructure?.redis.status === 'healthy' ? 'default' : 'destructive'}
+                variant={infrastructure?.redis?.status === 'healthy' ? 'default' : 'destructive'}
                 className="text-xs"
               >
-                {infrastructure?.redis.status || 'unknown'}
+                {infrastructure?.redis?.status || 'unknown'}
               </Badge>
             </div>
             <div className="flex items-center justify-between">
@@ -236,10 +219,10 @@ export function Sidebar({ onDeployClick }: SidebarProps) {
                 <span className="text-xs">Backups</span>
               </div>
               <Badge
-                variant={infrastructure?.backup?.status === 'healthy' ? 'default' : 'destructive'}
+                variant={infrastructure?.backupStorage?.status === 'healthy' ? 'default' : 'destructive'}
                 className="text-xs"
               >
-                {infrastructure?.backup?.status || 'unknown'}
+                {infrastructure?.backupStorage?.status || 'unknown'}
               </Badge>
             </div>
           </div>

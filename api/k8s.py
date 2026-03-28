@@ -172,6 +172,7 @@ def pod_to_dict(pod: client.V1Pod) -> Dict[str, Any]:
         "phase": pod.status.phase if pod.status else "Unknown",
         "containers": container_statuses,
         "labels": dict(pod.metadata.labels) if pod.metadata.labels else {},
+        "terminating": pod.metadata.deletion_timestamp is not None,
     }
 
 

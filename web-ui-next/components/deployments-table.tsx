@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { useQueryClient } from '@tanstack/react-query'
+import { useDeleteDeployment } from '@/lib/grpc-hooks'
 import {
   Table,
   TableBody,
@@ -49,7 +49,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { addActivity } from '@/lib/activity'
-import type { Deployment, DeploymentPhase } from '@/lib/types'
+import type { DeploymentDisplay, DeploymentPhase } from '@/lib/types'
 import { formatAgeFromDate } from '@/lib/format'
 import { CreateSnapshotDialog } from './create-snapshot-dialog'
 import { DeploymentDetailsDrawer } from './deployment-details-drawer'
@@ -67,12 +67,13 @@ const PHASE_CONFIG: Record<DeploymentPhase | string, {
   'workers-starting': { variant: 'secondary', dotClass: 'bg-purple-500', label: 'Workers', pulse: true },
   'running': { variant: 'default', dotClass: 'bg-emerald-500', label: 'Running' },
   'failed': { variant: 'destructive', dotClass: 'bg-red-500', label: 'Failed' },
+  'deleting': { variant: 'secondary', dotClass: 'bg-amber-500', label: 'Deleting', pulse: true },
   'pending': { variant: 'secondary', dotClass: 'bg-amber-500', label: 'Pending', pulse: true },
   'unknown': { variant: 'outline', dotClass: 'bg-zinc-400', label: 'Unknown' },
 }
 
 // Status indicator with animated dot
-function StatusBadge({ status, phase, isDeleting }: { status: string; phase?: DeploymentPhase; isDeleting: boolean }) {
+function StatusBadge({ status, phase, isDeleting }: { status: string; phase?: string; isDeleting: boolean }) {
   if (isDeleting) {
     return (
       <Badge variant="secondary" className="gap-1.5">
@@ -101,7 +102,7 @@ function StatusBadge({ status, phase, isDeleting }: { status: string; phase?: De
 }
 
 interface DeploymentsTableProps {
-  deployments: Deployment[] | undefined
+  deployments: DeploymentDisplay[] | undefined
   isLoading: boolean
   isError?: boolean
   onRetry?: () => void
@@ -109,23 +110,21 @@ interface DeploymentsTableProps {
 }
 
 export function DeploymentsTable({ deployments, isLoading, isError, onRetry, onDeployClick }: DeploymentsTableProps) {
-  const [deploymentToDelete, setDeploymentToDelete] = useState<Deployment | null>(null)
+  const [deploymentToDelete, setDeploymentToDelete] = useState<DeploymentDisplay | null>(null)
   const [deletingNamespace, setDeletingNamespace] = useState<string | null>(null)
-  const [deploymentToView, setDeploymentToView] = useState<Deployment | null>(null)
-  const [deploymentToSnapshot, setDeploymentToSnapshot] = useState<Deployment | null>(null)
+  const [deploymentToView, setDeploymentToView] = useState<DeploymentDisplay | null>(null)
+  const [deploymentToSnapshot, setDeploymentToSnapshot] = useState<DeploymentDisplay | null>(null)
   const queryClient = useQueryClient()
 
-  const deleteMutation = useMutation({
-    mutationFn: (namespace: string) => api.deleteDeployment(namespace),
+  const deleteMutation = useDeleteDeployment({
     onSuccess: (_data, namespace) => {
       toast.success('Deployment deleted', {
         description: `${namespace} has been removed`,
       })
       addActivity('deleted', namespace)
-      queryClient.invalidateQueries({ queryKey: ['deployments'] })
       setDeletingNamespace(null)
     },
-    onError: (error: Error, namespace) => {
+    onError: (error: Error) => {
       toast.error('Failed to delete deployment', {
         description: error.message,
       })

@@ -5,15 +5,11 @@ import os
 import logging
 import yaml
 import json
-import asyncio
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
-from kubernetes_asyncio import client, watch
 from validation import validate_namespace, validate_identifier
 import k8s
-from deployment_phase import calculate_phase
 
 router = APIRouter(prefix="/api/versions", tags=["versions"])
 
@@ -94,9 +90,8 @@ class DeployRequest(BaseModel):
     @classmethod
     def validate_version(cls, v: str) -> str:
         import re
-        # Support pre-release versions like 1.86.0-beta.1, 1.86.0-rc.1
-        if not re.match(r'^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$', v):
-            raise ValueError('Version must be in format major.minor.patch (e.g., 1.85.0 or 1.86.0-beta.1)')
+        if not re.match(r'^\d+\.\d+\.\d+$', v):
+            raise ValueError('Version must be in format major.minor.patch (e.g., 1.85.0)')
         return v
 
     @field_validator('mode')
@@ -235,18 +230,11 @@ async def get_namespace_metadata_batch() -> Dict[str, Dict[str, Any]]:
     """Fetch all n8n namespace metadata using k8s module."""
     metadata = {}
     try:
-        # List all namespaces and filter by name pattern (n8n-v* or n8n-*)
-        namespaces = await k8s.list_namespaces()
+        namespaces = await k8s.list_namespaces(label_selector="app=n8n")
         for ns in namespaces:
             name = ns.metadata.name
-            # Only include n8n namespaces (n8n-v* pattern)
-            if not name.startswith('n8n-'):
-                continue
-            # Extract version from namespace name if possible
-            version_match = re.search(r'n8n-v(\d+)-(\d+)-(\d+)', name)
-            version = f"{version_match.group(1)}.{version_match.group(2)}.{version_match.group(3)}" if version_match else 'unknown'
             metadata[name] = {
-                'version': version,
+                'version': ns.metadata.labels.get('version', 'unknown') if ns.metadata.labels else 'unknown',
                 'created_at': ns.metadata.creation_timestamp.isoformat() if ns.metadata.creation_timestamp else None
             }
     except Exception:
@@ -270,66 +258,6 @@ def get_helm_values_batch(namespaces: List[str]) -> Dict[str, Dict[str, Any]]:
         except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
             values[ns] = {}
     return values
-
-
-def infer_phase_from_pods(pod_list: List[str], mode: str) -> str:
-    """Infer deployment phase from pod status lines."""
-    if not pod_list:
-        return 'db-starting'
-
-    # Parse pod names and statuses
-    pods_status = {}
-    for line in pod_list:
-        # Pod line format: "n8n-main-0 - Running" or "postgres-xxx-0 - Running"
-        parts = line.split(' - ')
-        if len(parts) >= 2:
-            pod_name = parts[0].strip()
-            status = parts[1].strip()
-            pods_status[pod_name] = status
-
-    # Check postgres
-    postgres_running = any(
-        'postgres' in name and status == 'Running'
-        for name, status in pods_status.items()
-    )
-    if not postgres_running:
-        return 'db-starting'
-
-    # Check main n8n
-    main_running = any(
-        'n8n-main' in name and status == 'Running'
-        for name, status in pods_status.items()
-    )
-    if not main_running:
-        return 'n8n-starting'
-
-    # For queue mode, check workers and webhook
-    if mode == 'queue':
-        workers_running = all(
-            status == 'Running'
-            for name, status in pods_status.items()
-            if 'n8n-worker' in name
-        )
-        webhook_running = any(
-            'n8n-webhook' in name and status == 'Running'
-            for name, status in pods_status.items()
-        )
-        # Only check if workers/webhook pods exist
-        has_workers = any('n8n-worker' in name for name in pods_status.keys())
-        has_webhook = any('n8n-webhook' in name for name in pods_status.keys())
-
-        if (has_workers or has_webhook) and not (workers_running and webhook_running):
-            return 'workers-starting'
-
-    # Check for failures
-    has_failure = any(
-        status in ['Failed', 'CrashLoopBackOff', 'Error', 'ImagePullBackOff']
-        for status in pods_status.values()
-    )
-    if has_failure:
-        return 'failed'
-
-    return 'running'
 
 
 async def parse_versions_output(output: str) -> List[Dict[str, Any]]:
@@ -368,17 +296,9 @@ async def parse_versions_output(output: str) -> List[Dict[str, Any]]:
                     'ready': len([p for p in pod_list if 'Running' in p]),
                     'total': len(pod_list)
                 }
-                # Calculate phase from pod status
-                current_deployment['phase'] = infer_phase_from_pods(pod_list, current_deployment.get('mode', ''))
-                # Set status based on phase
+                # Set status if not already set
                 if not current_deployment.get('status'):
-                    phase = current_deployment['phase']
-                    if phase == 'running':
-                        current_deployment['status'] = 'running'
-                    elif phase == 'failed':
-                        current_deployment['status'] = 'failed'
-                    else:
-                        current_deployment['status'] = 'pending'
+                    current_deployment['status'] = 'pending' if pod_list else 'unknown'
                 versions.append(current_deployment)
                 current_deployment = {}
                 pod_list = []
@@ -416,7 +336,6 @@ async def parse_versions_output(output: str) -> List[Dict[str, Any]]:
                 'name': custom_name,
                 'mode': '',
                 'status': '',
-                'phase': '',
                 'url': '',
                 'isolated_db': isolated_db,
                 'snapshot': snapshot,
@@ -455,17 +374,9 @@ async def parse_versions_output(output: str) -> List[Dict[str, Any]]:
             'ready': len([p for p in pod_list if 'Running' in p]),
             'total': len(pod_list)
         }
-        # Calculate phase from pod status
-        current_deployment['phase'] = infer_phase_from_pods(pod_list, current_deployment.get('mode', ''))
-        # Set status based on phase
+        # Set status if not already set
         if not current_deployment.get('status'):
-            phase = current_deployment['phase']
-            if phase == 'running':
-                current_deployment['status'] = 'running'
-            elif phase == 'failed':
-                current_deployment['status'] = 'failed'
-            else:
-                current_deployment['status'] = 'pending'
+            current_deployment['status'] = 'pending' if pod_list else 'unknown'
         versions.append(current_deployment)
 
     return versions
@@ -706,107 +617,3 @@ async def get_namespace_config(namespace: str):
     namespace = validate_namespace(namespace)
     config_data = await k8s.get_configmap(namespace, "n8n-config")
     return {"config": config_data}
-
-
-@router.get("/{namespace}/phase")
-async def get_deployment_phase(namespace: str):
-    """Get current deployment phase (polling fallback)."""
-    namespace = validate_namespace(namespace)
-
-    pods = await k8s.list_pods(namespace=namespace)
-    pods_data = [k8s.pod_to_dict(p) for p in pods]
-
-    # Determine mode from configmap or pod labels
-    config_data = await k8s.get_configmap(namespace, "n8n-config")
-    is_queue_mode = config_data.get("EXECUTIONS_MODE") == "queue"
-
-    phase_info = calculate_phase(pods_data, is_queue_mode)
-    return phase_info
-
-
-@router.get("/{namespace}/events/stream")
-async def stream_deployment_events(namespace: str):
-    """Stream deployment events via Server-Sent Events (SSE)."""
-    namespace = validate_namespace(namespace)
-
-    async def event_generator():
-        w = watch.Watch()
-        api = await k8s.get_client()
-        v1 = client.CoreV1Api(api)
-
-        # Send connected event
-        yield f"event: connected\ndata: {json.dumps({'namespace': namespace})}\n\n"
-
-        # Get initial phase
-        try:
-            pods = await k8s.list_pods(namespace=namespace)
-            pods_data = [k8s.pod_to_dict(p) for p in pods]
-            config_data = await k8s.get_configmap(namespace, "n8n-config")
-            is_queue_mode = config_data.get("EXECUTIONS_MODE") == "queue"
-            phase_info = calculate_phase(pods_data, is_queue_mode)
-            yield f"event: phase\ndata: {json.dumps(phase_info)}\n\n"
-        except Exception as e:
-            logging.error(f"Error getting initial phase: {e}")
-
-        # Watch for pod changes
-        heartbeat_interval = 30  # seconds
-        last_heartbeat = asyncio.get_event_loop().time()
-
-        try:
-            async for event in w.stream(
-                v1.list_namespaced_pod,
-                namespace=namespace,
-                timeout_seconds=300
-            ):
-                # Calculate new phase on any pod change
-                try:
-                    pods = await k8s.list_pods(namespace=namespace)
-                    pods_data = [k8s.pod_to_dict(p) for p in pods]
-                    config_data = await k8s.get_configmap(namespace, "n8n-config")
-                    is_queue_mode = config_data.get("EXECUTIONS_MODE") == "queue"
-                    phase_info = calculate_phase(pods_data, is_queue_mode)
-
-                    # Send phase update
-                    yield f"event: phase\ndata: {json.dumps(phase_info)}\n\n"
-
-                    # Send pod event details
-                    pod = event['object']
-                    event_type = event['type']  # ADDED, MODIFIED, DELETED
-                    pod_info = {
-                        "type": event_type,
-                        "pod": pod.metadata.name,
-                        "status": pod.status.phase if pod.status else "Unknown",
-                    }
-                    yield f"event: pod_update\ndata: {json.dumps(pod_info)}\n\n"
-
-                    # Exit if deployment is complete or failed
-                    if phase_info.get("phase") in ["running", "failed"]:
-                        yield f"event: complete\ndata: {json.dumps(phase_info)}\n\n"
-                        break
-
-                except Exception as e:
-                    logging.error(f"Error processing pod event: {e}")
-
-                # Send heartbeat if needed
-                now = asyncio.get_event_loop().time()
-                if now - last_heartbeat > heartbeat_interval:
-                    yield f": heartbeat\n\n"
-                    last_heartbeat = now
-
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logging.error(f"SSE stream error: {e}")
-            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
-        finally:
-            await w.close()
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
-        }
-    )

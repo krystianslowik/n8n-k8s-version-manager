@@ -53,9 +53,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/*
 Calculate NodePort from version string
-Converts version like "1.85.0" to port 31850
+Converts version like "1.85.0" or "1.85.0-beta.1" to port 31850
 Formula: 30000 + major*1000 + minor*10 + patch
 Supports: major 0-2, minor 0-99, patch 0-9 (range 30000-32999)
+Pre-release suffixes like "-exp", "-beta.1", "-rc1" are stripped from patch
 */}}
 {{- define "n8n-instance.nodePort" -}}
 {{- if .Values.service.nodePort }}
@@ -65,7 +66,9 @@ Supports: major 0-2, minor 0-99, patch 0-9 (range 30000-32999)
 {{- $parts := splitList "." $version }}
 {{- $major := index $parts 0 | atoi }}
 {{- $minor := index $parts 1 | default "0" | atoi }}
-{{- $patch := index $parts 2 | default "0" | atoi }}
+{{- $patchRaw := index $parts 2 | default "0" }}
+{{- $patchParts := splitList "-" $patchRaw }}
+{{- $patch := index $patchParts 0 | atoi }}
 {{- add 30000 (add (mul $major 1000) (add (mul $minor 10) $patch)) }}
 {{- end }}
 {{- end }}

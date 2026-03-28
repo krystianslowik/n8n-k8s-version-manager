@@ -1,22 +1,52 @@
 services:
-  # FastAPI backend
-  backend:
+  # gRPC API server
+  api:
     build:
       context: ./api
       dockerfile: Dockerfile
     container_name: n8n-api
     ports:
-      - "8000:8080"
+      - "50051:50051"
     volumes:
       - ~/.kube/config:/root/.kube/config:ro
       - ./:/workspace:ro
     environment:
       - PYTHONUNBUFFERED=1
+    command: python server.py
+    networks:
+      - n8n-network
+
+  # REST API for file uploads only
+  upload-api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: n8n-upload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ~/.kube/config:/root/.kube/config:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    networks:
+      - n8n-network
+
+  # Envoy proxy for gRPC-Web
+  envoy:
+    image: envoyproxy/envoy:v1.28-latest
+    container_name: n8n-envoy
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+    depends_on:
+      - api
     networks:
       - n8n-network
 
   # Next.js frontend
-  frontend:
+  web:
     build:
       context: ./web-ui-next
       dockerfile: Dockerfile
@@ -24,9 +54,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8080
+      - NEXT_PUBLIC_API_URL=http://api:8080
+      - NEXT_PUBLIC_GRPC_URL=http://localhost:8080
     depends_on:
-      - backend
+      - envoy
     networks:
       - n8n-network
 

@@ -1,11 +1,16 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
-import { QUERY_CONFIG } from '@/lib/query-config'
+import { useQueryClient } from '@tanstack/react-query'
 import { formatMemory, formatAge } from '@/lib/format'
 import { addActivity } from '@/lib/activity'
+import {
+  useAvailableVersions,
+  useClusterResources,
+  useSnapshots,
+  useDeployVersion,
+  grpcQueryKeys,
+} from '@/lib/grpc-hooks'
 import {
   Drawer,
   DrawerContent,
@@ -51,7 +56,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { useDebounce, useDeploymentStream } from '@/lib/hooks'
+import { useDebounce } from '@/lib/hooks'
 import { HelmValuesEditor } from '@/components/helm-values-editor'
 import { RefreshButton } from '@/components/refresh-button'
 import type { HelmValues } from '@/lib/types'
@@ -69,55 +74,85 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
   const [snapshotPopoverOpen, setSnapshotPopoverOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [helmValues, setHelmValues] = useState<HelmValues>({})
-  const [trackingNamespace, setTrackingNamespace] = useState<string | null>(null)
 
   const debouncedSearch = useDebounce(searchQuery, 300)
 
   const queryClient = useQueryClient()
 
-  // SSE stream for real-time deployment tracking
-  useDeploymentStream({
-    namespace: trackingNamespace || '',
-    enabled: !!trackingNamespace,
-    onComplete: () => {
-      queryClient.invalidateQueries({ queryKey: ['deployments'] })
-      setTrackingNamespace(null)
-    },
-    onError: () => {
-      queryClient.invalidateQueries({ queryKey: ['deployments'] })
-      setTrackingNamespace(null)
-    },
-  })
-
   // Data is prefetched on page load, so it should be immediately available
-  const { data: availableVersions, isLoading: isLoadingVersions, isFetching: isFetchingVersions, refetch: refetchVersions } = useQuery({
-    queryKey: ['available-versions'],
-    queryFn: api.getAvailableVersions,
-    staleTime: QUERY_CONFIG.availableVersions.staleTime,
+  const { data: availableVersionsData, isLoading: isLoadingVersions, isFetching: isFetchingVersions, refetch: refetchVersions } = useAvailableVersions({
+    staleTime: 6 * 60 * 60 * 1000, // 6 hours
   })
 
-  const { data: clusterResources } = useQuery({
-    queryKey: ['cluster-resources'],
-    queryFn: api.getClusterResources,
-    staleTime: QUERY_CONFIG.clusterResources.staleTime,
-    refetchInterval: open ? QUERY_CONFIG.clusterResources.refetchInterval : false, // Only poll while drawer is open
+  // Map proto versions to simple string array
+  const availableVersions = useMemo(() => {
+    return availableVersionsData?.map(v => v.version) || []
+  }, [availableVersionsData])
+
+  const { data: clusterResources } = useClusterResources({
+    staleTime: 15_000,
+    refetchInterval: open ? 15_000 : false, // Only poll while drawer is open
   })
 
-  // Data is prefetched on page load
-  const { data: namedSnapshots, isLoading: isLoadingSnapshots } = useQuery({
-    queryKey: ['named-snapshots'],
-    queryFn: api.getNamedSnapshots,
-    staleTime: QUERY_CONFIG.namedSnapshots.staleTime,
+  // Data is prefetched on page load - filter for named snapshots
+  const { data: allSnapshots, isLoading: isLoadingSnapshots } = useSnapshots({
+    staleTime: 30_000,
+  })
+
+  // Filter for named snapshots (those with sourceNamespace set)
+  const namedSnapshots = useMemo(() => {
+    return allSnapshots?.filter(s => s.sourceNamespace) || []
+  }, [allSnapshots])
+
+  // Deploy with streaming progress
+  const { deploy, isDeploying, progress } = useDeployVersion({
+    onProgress: (p) => {
+      if (p.message) {
+        toast.loading(p.message, { id: 'deploy-progress', description: undefined })
+      }
+    },
+    onSuccess: (namespace) => {
+      toast.success('Deployment complete', { id: 'deploy-progress', description: undefined })
+      queryClient.invalidateQueries({ queryKey: grpcQueryKeys.deployments })
+      addActivity('deployed', `v${version}`)
+      onOpenChange(false)
+      setVersion('')
+      setHelmValues({})
+    },
+    onError: (error) => {
+      toast.error('Deployment failed', {
+        id: 'deploy-progress',
+        description: error.message,
+      })
+    },
   })
 
   const QUEUE_MODE_MEMORY = 1792
   const REGULAR_MODE_MEMORY = 512
 
   const requiredMemory = mode === 'queue' ? QUEUE_MODE_MEMORY : REGULAR_MODE_MEMORY
-  const hasCapacity = mode === 'queue'
-    ? clusterResources?.can_deploy.queue_mode
-    : clusterResources?.can_deploy.regular_mode
-  const availableMemory = clusterResources?.memory?.available_mi || 0
+  const summary = clusterResources?.summary
+
+  // Parse memory strings (e.g., "16Gi", "1234Mi") to Mi
+  const parseMemoryToMi = (memStr: string | undefined): number => {
+    if (!memStr) return 0
+    const match = memStr.match(/^(\d+(?:\.\d+)?)\s*(Ki|Mi|Gi|Ti)?$/i)
+    if (!match) return 0
+    const value = parseFloat(match[1])
+    const unit = (match[2] || '').toLowerCase()
+    switch (unit) {
+      case 'ki': return value / 1024
+      case 'mi': return value
+      case 'gi': return value * 1024
+      case 'ti': return value * 1024 * 1024
+      default: return value / (1024 * 1024)
+    }
+  }
+
+  const totalMemoryMi = parseMemoryToMi(summary?.totalMemory)
+  const usedMemoryMi = parseMemoryToMi(summary?.usedMemory)
+  const availableMemory = totalMemoryMi - usedMemoryMi
+  const hasCapacity = availableMemory >= requiredMemory
 
   const filteredVersions = useMemo(() => {
     if (!availableVersions) return []
@@ -148,36 +183,6 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
 
   const isSearching = searchQuery !== debouncedSearch
 
-  const deployMutation = useMutation({
-    mutationFn: api.deployVersion,
-    onSuccess: (data) => {
-      if (data.success) {
-        // Calculate namespace
-        const namespace = `n8n-v${version.replace(/\./g, '-')}`
-
-        onOpenChange(false)
-        setVersion('')
-        setHelmValues({})
-        queryClient.invalidateQueries({ queryKey: ['deployments'] })
-
-        // Start SSE tracking for real-time progress
-        setTrackingNamespace(namespace)
-
-        // Track activity
-        addActivity('deployed', `v${version}`)
-      } else {
-        toast.error('Deployment failed', {
-          description: data.error || 'Unknown error',
-        })
-      }
-    },
-    onError: (error: Error) => {
-      toast.error('Deployment failed', {
-        description: error.message,
-      })
-    },
-  })
-
   const handleDeploy = () => {
     if (!version) {
       toast.error('Version required', {
@@ -186,14 +191,11 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
       return
     }
 
-    // Only include helm_values if there's something to send
-    const hasHelmValues = Object.keys(helmValues).length > 0
-
-    deployMutation.mutate({
+    // Note: helm_values not yet supported in gRPC, will need to add to proto
+    deploy({
       version,
       mode,
       snapshot: snapshot || undefined,
-      helm_values: hasHelmValues ? helmValues : undefined,
     })
   }
 
@@ -437,20 +439,20 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
                           </CommandItem>
                           {namedSnapshots.map((s) => (
                             <CommandItem
-                              key={s.filename}
-                              value={s.name || s.filename}
+                              key={s.name}
+                              value={s.name}
                               onSelect={() => {
-                                setSnapshot(s.name || s.filename)
+                                setSnapshot(s.name)
                                 setSnapshotPopoverOpen(false)
                               }}
                             >
                               <CheckIcon
                                 className={cn(
                                   'mr-2 h-4 w-4',
-                                  snapshot === (s.name || s.filename) ? 'opacity-100' : 'opacity-0'
+                                  snapshot === s.name ? 'opacity-100' : 'opacity-0'
                                 )}
                               />
-                              {s.name || s.filename}
+                              {s.name}
                             </CommandItem>
                           ))}
                         </CommandGroup>
@@ -487,7 +489,7 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
         </div>
 
         {/* Capacity Warning */}
-        {clusterResources && !hasCapacity && (
+        {summary && !hasCapacity && (
           <div className="px-6 pb-4">
             <div className="border-2 border-red-200 rounded-lg p-4 bg-red-50 max-h-96 overflow-y-auto">
               <div className="flex items-start gap-3">
@@ -501,35 +503,9 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
                       This {mode} mode deployment needs {formatMemory(requiredMemory)}, but only {formatMemory(availableMemory)} is available.
                     </p>
                   </div>
-
-                  {clusterResources.deployments.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-red-900">
-                        Active deployments using memory:
-                      </p>
-                      <div className="space-y-1 max-h-48 overflow-y-auto pr-2">
-                        {clusterResources.deployments.slice(0, 5).map((deployment) => (
-                          <div
-                            key={deployment.namespace}
-                            className="flex items-center gap-2 text-sm bg-white rounded p-2 border border-red-100"
-                          >
-                            <span className="font-mono text-xs text-gray-700">
-                              {deployment.namespace}
-                            </span>
-                            <Badge variant="outline" className="text-xs">
-                              {formatMemory(deployment.memory_mi)}
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">
-                              {formatAge(deployment.age_seconds)} old
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="text-xs text-red-700 mt-2">
-                        Go to the dashboard to delete deployments and free up memory.
-                      </p>
-                    </div>
-                  )}
+                  <p className="text-xs text-red-700 mt-2">
+                    Go to the dashboard to delete deployments and free up memory.
+                  </p>
                 </div>
               </div>
             </div>
@@ -539,13 +515,13 @@ export function DeployDrawer({ open, onOpenChange }: DeployDrawerProps) {
         <DrawerFooter>
           <Button
             onClick={handleDeploy}
-            disabled={deployMutation.isPending || !version || !hasCapacity}
+            disabled={isDeploying || !version || !hasCapacity}
             className="w-full"
           >
-            {deployMutation.isPending ? (
+            {isDeploying ? (
               <>
                 <LoaderIcon className="h-4 w-4 mr-2 animate-spin" />
-                Deploying...
+                {progress?.message || 'Deploying...'}
               </>
             ) : (
               <>
