@@ -6,7 +6,7 @@ proto-python:
 	python -m grpc_tools.protoc \
 		-I./proto \
 		--python_out=./api/generated \
-		--grpclib_python_out=./api/generated \
+		--grpc_python_out=./api/generated \
 		./proto/n8n_manager/v1/*.proto
 
 proto-typescript:

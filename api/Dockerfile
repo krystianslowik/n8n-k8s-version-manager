@@ -10,16 +10,27 @@ RUN apt-get update && apt-get install -y curl && \
 WORKDIR /app
 
 # Install Python dependencies
-COPY requirements.txt .
+COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Generate protobuf Python code from proto definitions
+COPY proto/ /proto/
+COPY api/generated/__init__.py ./generated/__init__.py
+RUN mkdir -p generated/n8n_manager/v1 && \
+    touch generated/n8n_manager/__init__.py && \
+    touch generated/n8n_manager/v1/__init__.py && \
+    python -m grpc_tools.protoc \
+        -I/proto \
+        --python_out=./generated \
+        --grpc_python_out=./generated \
+        /proto/n8n_manager/v1/*.proto
+
 # Copy application code
-COPY *.py ./
-COPY services/ ./services/
-COPY generated/ ./generated/
+COPY api/*.py ./
+COPY api/services/ ./services/
 
 # Copy entrypoint script
-COPY entrypoint.sh /entrypoint.sh
+COPY api/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Set KUBECONFIG to use the modified config created by entrypoint

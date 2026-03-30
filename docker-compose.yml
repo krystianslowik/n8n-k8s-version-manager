@@ -2,8 +2,8 @@ services:
   # gRPC API server
   api:
     build:
-      context: ./api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: api/Dockerfile
     container_name: n8n-api
     ports:
       - "50051:50051"
@@ -19,8 +19,8 @@ services:
   # REST API for file uploads only
   upload-api:
     build:
-      context: ./api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: api/Dockerfile
     container_name: n8n-upload
     ports:
       - "8000:8000"
