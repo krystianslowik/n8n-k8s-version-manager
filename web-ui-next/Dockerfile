@@ -4,11 +4,16 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+COPY web-ui-next/package*.json ./
 RUN npm ci
 
+# Copy proto definitions and generate TypeScript
+COPY proto/ /proto/
+COPY web-ui-next/buf.gen.yaml ./
+RUN npx buf generate /proto
+
 # Copy source
-COPY . .
+COPY web-ui-next/ .
 
 # Build Next.js app (standalone output)
 RUN npm run build

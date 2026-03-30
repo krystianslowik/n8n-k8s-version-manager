@@ -48,8 +48,8 @@ services:
   # Next.js frontend
   web:
     build:
-      context: ./web-ui-next
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: web-ui-next/Dockerfile
     container_name: n8n-ui
     ports:
       - "3000:3000"
